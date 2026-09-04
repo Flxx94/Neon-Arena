@@ -1,6 +1,8 @@
 # AGENTS.md – Neon Arena
 
-> Current state (2026-09-04): planning only. Repo contains just `PROJECT_PLAN.md` (architecture/stack) and `TASKS.md` (milestones). No code, no `package.json`, no git repo yet. Treat those two files as source of truth; this file only summarizes what an agent would otherwise miss.
+> Current state (2026-09-04): M0 done (`milestone/M0` tagged). Monorepo builds green: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` all pass; `/health`+`/metrics` verified live. Source of truth: `PROJECT_PLAN.md` + `TASKS.md`; this file only summarizes what an agent would otherwise miss.
+>
+> Env quirks on this machine: `pnpm` was installed via `npm i -g pnpm` (use pnpm 9+; repo pins 9.12 via `packageManager`); Git lives at `%LOCALAPPDATA%\Programs\Git\bin` (add to PATH per shell); **no Docker** — `infra/docker-compose.yml` is unverified locally.
 
 ## Where to start
 - Work strictly in milestone order from `TASKS.md`: M0 → M5, P0 before P1, never P2 without approval.

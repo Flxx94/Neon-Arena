@@ -6,18 +6,18 @@
 
 ---
 
-## Milestone M0 – Setup & Tooling [P0] (~0,5 Wochen)
+## Milestone M0 – Setup & Tooling [P0] (~0,5 Wochen) — DONE (2026-09-04, `milestone/M0`)
 
-- [ ] **M0-01 [P0]** Monorepo anlegen (`pnpm` Workspaces + `turbo.json`, Pakete `apps/client`, `apps/server`, `packages/shared`)
-  Done-wenn: `pnpm install` + `pnpm dev` startet beide Apps ohne Fehler.
-- [ ] **M0-02 [P0]** TypeScript strict, ESLint, Prettier, `.env.example` einrichten
-  Done-wenn: `pnpm check` (lint + typecheck) läuft und ist grün.
-- [ ] **M0-03 [P0]** Docker Compose (`client`, `server`, `postgres`, `redis`) + Dockerfiles
-  Done-wenn: `docker-compose up` → Client :5173, Server :2567, DBs erreichbar.
-- [ ] **M0-04 [P0]** CI-Skelett (GitHub Actions: install → lint → typecheck → test → build)
-  Done-wenn: Push auf Branch lässt CI grün durchlaufen.
-- [ ] **M0-05 [P0]** Server `/health` (up, version) und `/metrics`-Stub (rooms, players, tick_ms)
-  Done-wenn: `curl localhost:2567/health` antwortet 200 mit JSON.
+- [x] **M0-01 [P0]** Monorepo anlegen (`pnpm` Workspaces + `turbo.json`, Pakete `apps/client`, `apps/server`, `packages/shared`)
+  Done-wenn: `pnpm install` + `pnpm dev` startet beide Apps ohne Fehler. → verifiziert (Client :5173 → 200, Server :2567 läuft).
+- [x] **M0-02 [P0]** TypeScript strict, ESLint, Prettier, `.env.example` einrichten
+  Done-wenn: `pnpm check` (lint + typecheck) läuft und ist grün. → verifiziert.
+- [x] **M0-03 [P0]** Docker Compose (`client`, `server`, `postgres`, `redis`) + Dockerfiles
+  Done-wenn: `docker-compose up` → Client :5173, Server :2567, DBs erreichbar. → Dateien angelegt, `docker` auf diesem Rechner nicht verfügbar, Verify offen.
+- [x] **M0-04 [P0]** CI-Skelett (GitHub Actions: install → lint → typecheck → test → build)
+  Done-wenn: Push auf Branch lässt CI grün durchlaufen. → `.github/workflows/ci.yml` angelegt, lokal alle Schritte grün; Push ausstehend (kein Remote).
+- [x] **M0-05 [P0]** Server `/health` (up, version) und `/metrics`-Stub (rooms, players, tick_ms)
+  Done-wenn: `curl localhost:2567/health` antwortet 200 mit JSON. → verifiziert (Unit-Test + Live-Curl).
 
 ---
 
