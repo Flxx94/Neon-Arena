@@ -61,6 +61,8 @@ export interface SimContext {
   nextPickupId: number
   nextBotNum: number
   roundTicksLeft: number
+  /** Volle Rundenlaenge (fuer Reset; Tests via ROUND_SECONDS_OVERRIDE kuerzbar). */
+  roundTotal: number
   endTicksLeft: number
   pickupTimer: number
   botIds: Set<string>
@@ -80,6 +82,7 @@ export function createContext(botsEnabled = true): SimContext {
     nextPickupId: 1,
     nextBotNum: 1,
     roundTicksLeft: ROUND_SECONDS * TICK_RATE,
+    roundTotal: ROUND_SECONDS * TICK_RATE,
     endTicksLeft: 0,
     pickupTimer: Math.ceil((PICKUP_SPAWN_INTERVAL_MS / 1000) * TICK_RATE),
     botIds: new Set(),
@@ -223,7 +226,7 @@ function startRound(ctx: SimContext, state: ArenaState): void {
   }
   state.phase = 'play'
   state.winner = ''
-  ctx.roundTicksLeft = ROUND_SECONDS * TICK_RATE
+  ctx.roundTicksLeft = ctx.roundTotal
   ctx.events.push({ type: 'roundStart' })
 }
 

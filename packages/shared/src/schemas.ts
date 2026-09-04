@@ -10,6 +10,8 @@ export const nicknameSchema = z
 export const joinSchema = z.object({
   nickname: nicknameSchema,
   protocolV: z.literal(1),
+  // M4-02: Gast-Identitaet (Session muss serverseitig existieren).
+  userId: z.string().uuid().optional(),
 })
 
 /** Jede Client-Message laeuft durch dieses Schema; unbekannte Felder werden gestrippt (.strict fehlt absichtlich nicht -> strip). */

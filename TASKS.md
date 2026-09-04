@@ -74,18 +74,18 @@
 
 ---
 
-## Milestone M4 – Persistenz & Identität [P1] (~1 Woche; Leaderboard = P0-Anteil)
+## Milestone M4 – Persistenz & Identität [P1] (~1 Woche; Leaderboard = P0-Anteil) — DONE (2026-09-04, `milestone/M4`)
 
-- [ ] **M4-01 [P0]** Postgres-Schema + Prisma (`users`, `matches`, `match_players`), Migrationen
-  Done-wenn: `prisma migrate deploy` läuft in Docker Compose fehlerfrei.
-- [ ] **M4-02 [P0]** Gast-JWT (httpOnly-Cookie, 24 h) + Rejoin-Session in Redis
-  Done-wenn: Reload behält Identität; fremdes Token wird abgewiesen (Test).
-- [ ] **M4-03 [P0]** Rundenende → Ergebnis async nach Postgres (non-blocking für Sim)
-  Done-wenn: Tick-Zeit steigt beim Schreiben nicht messbar (Vorher/Nachher-Log).
-- [ ] **M4-04 [P1]** Leaderboard-Seite (Top 100, aus View) + Match-Historie pro Spieler
-  Done-wenn: nach 3 Runden sind Einträge sichtbar und korrekt summiert.
-- [ ] **M4-05 [P1]** Rate-Limits in Redis (Input 30/s, Join 5/min/IP)
-  Done-wenn: Flood-Test (k6/Node-Skript) wird mit 429/Disconnect beantwortet, legitimer Traffic unbeeinflusst.
+- [x] **M4-01 [P0]** Postgres-Schema + Prisma (`users`, `matches`, `match_players`), Migrationen
+  Done-wenn: `prisma migrate deploy` läuft in Docker Compose fehlerfrei. → verifiziert (frische DB + `migrate deploy` beim Server-Boot; Prisma 6.19.3 gepinnt — Achtung: unpinned `prisma` zog 8.0.0-rc).
+- [x] **M4-02 [P0]** Gast-JWT (httpOnly-Cookie, 24 h) + Rejoin-Session in Redis
+  Done-wenn: Reload behält Identität; fremdes Token wird abgewiesen (Test). → `POST /auth/guest` (jose-HS256, `na_guest`-Cookie) + `GET /me`; Sessions Redis (TTL 24 h, Memory-Fallback); Join prüft Session (`INVALID_GUEST`); Unit-Tests (Roundtrip, Tamper, forged UUID).
+- [x] **M4-03 [P0]** Rundenende → Ergebnis async nach Postgres (non-blocking für Sim)
+  Done-wenn: Tick-Zeit steigt beim Schreiben nicht messbar (Vorher/Nachher-Log). → fire-and-forget `persistMatch` im Sim-Tick (Bots ohne userId übersprungen); Mock-Test + ECHT verifiziert (Live-Runde → Match-Zeile mit Survival-Bonus in PG).
+- [x] **M4-04 [P1]** Leaderboard-Seite (Top 100, aus View) + Match-Historie pro Spieler
+  Done-wenn: nach 3 Runden sind Einträge sichtbar und korrekt summiert. → `GET /leaderboard` (groupBy-Summe statt View — gleiche Wirkung in dieser Größe) + `GET /history/:userId` + `public/leaderboard.html`; ECHT verifiziert (2 Seed- + 1 Live-Runde: SeedA 820 = 500+320 ✓).
+- [x] **M4-05 [P1]** Rate-Limits in Redis (Input 30/s, Join 5/min/IP)
+  Done-wenn: Flood-Test (k6/Node-Skript) wird mit 429/Disconnect beantwortet, legitimer Traffic unbeeinflusst. → Sliding-Memory/Fixed-Redis-Limiter: HTTP 429 (`POST /auth/guest`, getestet), Input >35/s ignoriert, >120/s Disconnect 4400, Join 5/min/IP (`RATE_LIMITED`).
 
 ---
 

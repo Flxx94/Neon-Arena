@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Neon Arena – Bestenliste</title>
+    <style>
+      body { background: #050510; color: #0ff; font-family: monospace; padding: 24px; }
+      h1 { text-shadow: 0 0 18px #0ff; }
+      table { border-collapse: collapse; }
+      td, th { border: 1px solid #0ff3; padding: 4px 12px; text-align: right; }
+      td:first-child, th:first-child, td:nth-child(2), th:nth-child(2) { text-align: left; }
+      a { color: #0ff; }
+      #history { margin-top: 24px; }
+    </style>
+  </head>
+  <body>
+    <h1>🏆 Bestenliste (Top 100)</h1>
+    <div id="board">Lade …</div>
+    <div id="history"></div>
+    <script type="module">
+      const server = new URLSearchParams(location.search).get('server') ?? 'http://localhost:2567'
+      const board = document.getElementById('board')
+      const historyEl = document.getElementById('history')
+      const res = await fetch(`${server}/leaderboard`)
+      if (!res.ok) {
+        board.textContent = 'Bestenliste offline (keine DB).'
+      } else {
+        const rows = await res.json()
+        const table = document.createElement('table')
+        table.innerHTML = '<tr><th>#</th><th>Spieler</th><th>Punkte</th><th>Kills</th><th>Matches</th></tr>'
+        for (const r of rows) {
+          const tr = document.createElement('tr')
+          const link = document.createElement('a')
+          link.href = `?user=${encodeURIComponent(r.userId)}`
+          link.textContent = r.nickname
+          const cells = [r.rank, '', r.score, r.kills, r.matches]
+          cells.forEach((v, i) => {
+            const td = document.createElement('td')
+            if (i === 1) td.appendChild(link)
+            else td.textContent = String(v)
+            tr.appendChild(td)
+          })
+          table.appendChild(tr)
+        }
+        board.replaceChildren(table)
+      }
+      const user = new URLSearchParams(location.search).get('user')
+      if (user) {
+        const hres = await fetch(`${server}/history/${encodeURIComponent(user)}`)
+        if (hres.ok) {
+          const matches = await hres.json()
+          const h = document.createElement('div')
+          const title = document.createElement('h2')
+          title.textContent = `Letzte ${matches.length} Matches`
+          h.appendChild(title)
+          const ul = document.createElement('ul')
+          for (const m of matches) {
+            const li = document.createElement('li')
+            const me = m.players.find((p) => p.userId === user)
+            li.textContent = `${new Date(m.endedAt).toLocaleString()} – Score ${me?.score ?? 0} (${me?.kills ?? 0}/${me?.deaths ?? 0})`
+            ul.appendChild(li)
+          }
+          h.appendChild(ul)
+          historyEl.replaceChildren(h)
+        }
+      }
+    </script>
+  </body>
+</html>

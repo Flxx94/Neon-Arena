@@ -2,6 +2,8 @@ import { Room } from 'colyseus.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Client } from 'colyseus.js'
 import type { AddressInfo } from 'net'
+import { randomUUID } from 'crypto'
+import { issueGuest } from '../auth/guest.js'
 import { startGameServer } from '../index.js'
 
 beforeEach(() => {
@@ -13,8 +15,9 @@ afterEach(() => {
 })
 
 async function join(port: number, nickname: string): Promise<Room> {
+  const { identity } = await issueGuest(nickname)
   const client = new Client(`ws://127.0.0.1:${port}`)
-  return client.joinOrCreate('arena', { nickname, protocolV: 1 })
+  return client.joinOrCreate('arena', { nickname, protocolV: 1, userId: identity.userId })
 }
 
 describe('Matchmaking + Reconnect (M3-01/M3-02)', () => {
@@ -47,8 +50,13 @@ describe('Matchmaking + Reconnect (M3-01/M3-02)', () => {
     const started = await startGameServer(0)
     const port = (started.httpServer.address() as AddressInfo).port
     try {
+      const { identity } = await issueGuest('Sticky')
       const client = new Client(`ws://127.0.0.1:${port}`)
-      const room = await client.joinOrCreate('arena', { nickname: 'Sticky', protocolV: 1 })
+      const room = await client.joinOrCreate('arena', {
+        nickname: 'Sticky',
+        protocolV: 1,
+        userId: identity.userId,
+      })
       const { sessionId, reconnectionToken } = room
 
       // Abrupter Abriss (unconsented) -> Grace-Fenster.
@@ -68,6 +76,44 @@ describe('Matchmaking + Reconnect (M3-01/M3-02)', () => {
       expect(room2!.sessionId).toBe(sessionId)
       await room2!.leave()
     } finally {
+      await started.gameServer.gracefullyShutdown(false)
+      started.httpServer.close()
+    }
+  }, 60_000)
+
+  it('gefaelschte userId wird abgewiesen (M4-02)', async () => {
+    const started = await startGameServer(0)
+    const port = (started.httpServer.address() as AddressInfo).port
+    try {
+      const client = new Client(`ws://127.0.0.1:${port}`)
+      await expect(
+        client.joinOrCreate('arena', { nickname: 'Fake', protocolV: 1, userId: randomUUID() }),
+      ).rejects.toThrow()
+    } finally {
+      await started.gameServer.gracefullyShutdown(false)
+      started.httpServer.close()
+    }
+  }, 60_000)
+
+  it('Rundenende wird an Clients gebroadcastet (M4-03-Pfad)', async () => {
+    process.env.ROUND_SECONDS_OVERRIDE = '3'
+    const started = await startGameServer(0)
+    const port = (started.httpServer.address() as AddressInfo).port
+    try {
+      const roomA = await join(port, 'TimerA')
+      const roundEnd = new Promise<unknown>((resolve) => {
+        roomA.onMessage('round', (msg) => {
+          if ((msg as { phase?: string }).phase === 'end') resolve(msg)
+        })
+      })
+      const winner = await Promise.race([
+        roundEnd,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('kein round-end')), 15_000)),
+      ])
+      expect((winner as { winner?: string }).winner).toBeDefined()
+      await roomA.leave()
+    } finally {
+      delete process.env.ROUND_SECONDS_OVERRIDE
       await started.gameServer.gracefullyShutdown(false)
       started.httpServer.close()
     }

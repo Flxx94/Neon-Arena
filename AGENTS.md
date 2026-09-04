@@ -1,6 +1,13 @@
 # AGENTS.md – Neon Arena
 
-> Current state (2026-09-04): M3 done (`milestone/M3`). Rounds (3-min + winner + auto-restart), score/killfeed/scoreboard, enemy interpolation, seek+shoot bots (`BOTS_ENABLED`, fill to 4), HP/Shield pickups. 26 unit tests + Playwright green.
+> Current state (2026-09-04): M4 done (`milestone/M4`). Prisma 6 (User/Match/MatchPlayer) + guest JWT (`na_guest` cookie) + Redis sessions/rate-limits with memory fallback; round results persist async; leaderboard/history routes + page. 40 unit tests + Playwright green; verified against real PG/Redis via Compose.
+>
+> ## Persistenz (M4)
+> - DB/Redis sind OPTIONAL: `getDb()`/`getRedis()` return null when `NODE_ENV=test`, `DB_ENABLED=false`, or URL missing — server runs degraded (memory sessions/limits). Tests never need Docker.
+> - Prisma 6.19.3 pinned (bare `prisma` resolves 8.0.0-rc!). `apps/server/prisma/` holds schema+migrations; Docker server runs `prisma migrate deploy` on boot; `prisma generate` is part of the Docker build.
+> - Guest flow: `POST /auth/guest` → JWT+cookie+session (+User row if DB); client `ensureGuest()` (`/me` first for reload identity) sends `userId` in join options; room rejects unknown ids (`INVALID_GUEST`). `JWT_SECRET` must exist in local `.env` too (not just `.env.example`) or production boot throws.
+> - Rate limits: `ratelimit/limiter.ts` (memory sliding / redis fixed-window). Input >35/s ignored, >120/s → `leave(4400)`; join 5/min/IP (`RATE_LIMITED`); HTTP guest route 429s.
+> - jose: `setExpirationTime` needs a string like `'24h'` (number = epoch seconds → instantly expired).
 >
 > ## Layout (M2/M3)
 > - Sim: `apps/server/src/sim/{state.ts,engine.ts,metrics.ts}` — pure `update(ctx, state)` over Colyseus Schema state, wired via `setSimulationInterval` in `ArenaRoom`. Unit-test through real Schema classes (needs the decorator/tsconfig flags below).

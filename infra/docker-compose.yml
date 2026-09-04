@@ -21,9 +21,12 @@ services:
     environment:
       PORT: 2567
       CLIENT_URL: http://localhost:5173
+      DATABASE_URL: postgresql://neon:neon@postgres:5432/neon_arena
+      REDIS_URL: redis://redis:6379
     depends_on:
       - postgres
       - redis
+    command: sh -c "cd apps/server && ./node_modules/.bin/prisma migrate deploy && node dist/index.js"
 
   postgres:
     image: postgres:16-alpine

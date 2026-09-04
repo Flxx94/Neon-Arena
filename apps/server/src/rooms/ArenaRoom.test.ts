@@ -2,6 +2,7 @@ import { Room } from 'colyseus.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Client } from 'colyseus.js'
 import type { AddressInfo } from 'net'
+import { issueGuest } from '../auth/guest.js'
 import { startGameServer } from '../index.js'
 
 beforeEach(() => {
@@ -19,8 +20,9 @@ async function startEphemeral() {
 }
 
 async function joinPlayer(port: number, nickname: string): Promise<Room> {
+  const { identity } = await issueGuest(nickname)
   const client = new Client(`ws://127.0.0.1:${port}`)
-  return client.joinOrCreate('arena', { nickname, protocolV: 1 })
+  return client.joinOrCreate('arena', { nickname, protocolV: 1, userId: identity.userId })
 }
 
 function playersOf(room: Room): Map<string, { x: number }> {
