@@ -13,7 +13,8 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@neon-arena/shared": "workspace:*"
+    "@neon-arena/shared": "workspace:*",
+    "colyseus.js": "^0.16.22"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.1",

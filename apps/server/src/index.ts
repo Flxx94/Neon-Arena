@@ -1,6 +1,10 @@
+import { createServer, type Server as HttpServer } from 'http'
 import cors from 'cors'
+import { Server as GameServer } from '@colyseus/core'
+import { WebSocketTransport } from '@colyseus/ws-transport'
 import express, { type Express } from 'express'
 import helmet from 'helmet'
+import { ArenaRoom } from './rooms/ArenaRoom.js'
 
 const PORT = Number(process.env.PORT ?? 2567)
 const APP_VERSION = process.env.APP_VERSION ?? '0.1.0'
@@ -27,9 +31,21 @@ export function createApp(): Express {
   return app
 }
 
-if (process.argv[1]?.endsWith('index.ts') || process.env.NODE_ENV !== 'test') {
-  const app = createApp()
-  app.listen(PORT, () => {
-    console.log(`[server] listening on :${PORT}`)
+export async function startGameServer(
+  port: number,
+): Promise<{ httpServer: HttpServer; gameServer: GameServer }> {
+  const httpServer = createServer(createApp())
+  const gameServer = new GameServer({
+    transport: new WebSocketTransport({ server: httpServer }),
   })
+  gameServer.define('arena', ArenaRoom)
+  await gameServer.listen(port)
+  return { httpServer, gameServer }
+}
+
+const entry = process.argv[1] ?? ''
+const isMain = entry.endsWith('index.ts') || entry.endsWith('index.js')
+if (isMain) {
+  await startGameServer(PORT)
+  console.log(`[server] listening on :${PORT}`)
 }

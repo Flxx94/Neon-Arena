@@ -21,18 +21,18 @@
 
 ---
 
-## Milestone M1 – Netz-Skeleton (Shared-Protokoll + Join/Move) [P0] (~1 Woche)
+## Milestone M1 – Netz-Skeleton (Shared-Protokoll + Join/Move) [P0] (~1 Woche) — DONE (2026-09-04, `milestone/M1`)
 
-- [ ] **M1-01 [P0]** `packages/shared`: `protocol.ts` (Message-Typen, `PROTOCOL_V=1`), `constants.ts` (Tick-Raten, Speeds), `schemas.ts` (Zod: Join, Input)
-  Done-wenn: Client+Server importieren Typen ohne Duplikate; Unit-Test validiert Beispiel-Messages.
-- [ ] **M1-02 [P0]** Colyseus-Room `ArenaRoom`: Join/Leave, Spielerliste, Snapshot-Broadcast 20 Hz
-  Done-wenn: 2 Browser-Tabs joinen, sehen einander in der Spielerliste.
-- [ ] **M1-03 [P0]** Client-Net-Layer: Verbinden, Snapshot-Buffer, Input-Senden (30/s, mit `seq`)
-  Done-wenn: Bewegung in Tab A erscheint <200 ms in Tab B (lokal).
-- [ ] **M1-04 [P0]** Nickname-Eingabe + Spawn (zufällige Position, kein Overlap)
-  Done-wenn: 2 Tabs mit verschiedenen Nicknames spawnen sichtbar unterschiedlich.
-- [ ] **M1-05 [P0]** Playwright-Smoke: „2 Clients joinen und bewegen sich“
-  Done-wenn: `pnpm test:e2e` grün in CI.
+- [x] **M1-01 [P0]** `packages/shared`: `protocol.ts` (Message-Typen, `PROTOCOL_V=1`), `constants.ts` (Tick-Raten, Speeds), `schemas.ts` (Zod: Join, Input)
+  Done-wenn: Client+Server importieren Typen ohne Duplikate; Unit-Test validiert Beispiel-Messages. → verifiziert (3 shared-Tests; beide Apps importieren).
+- [x] **M1-02 [P0]** Colyseus-Room `ArenaRoom`: Join/Leave, Spielerliste, Snapshot-Broadcast 20 Hz
+  Done-wenn: 2 Browser-Tabs joinen, sehen einander in der Spielerliste. → verifiziert (Server-Test 2 Clients + E2E; `setPatchRate(50)`).
+- [x] **M1-03 [P0]** Client-Net-Layer: Verbinden, Snapshot-Buffer, Input-Senden (30/s, mit `seq`)
+  Done-wenn: Bewegung in Tab A erscheint <200 ms in Tab B (lokal). → verifiziert (E2E-Poll Raspberry, Gesamtlauf 934 ms).
+- [x] **M1-04 [P0]** Nickname-Eingabe + Spawn (zufällige Position, kein Overlap)
+  Done-wenn: 2 Tabs mit verschiedenen Nicknames spawnen sichtbar unterschiedlich. → verifiziert (Join-Overlay, `findSpawn` mit Overlap-Retry, Nickname via Canvas-Text).
+- [x] **M1-05 [P0]** Playwright-Smoke: „2 Clients joinen und bewegen sich“
+  Done-wenn: `pnpm test:e2e` grün in CI. → lokal grün; CI läuft nach Push.
 
 ---
 

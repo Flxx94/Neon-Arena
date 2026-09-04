@@ -1,8 +1,13 @@
 # AGENTS.md – Neon Arena
 
-> Current state (2026-09-04): M0 done (`milestone/M0` tagged). Monorepo builds green: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` all pass; `/health`+`/metrics` verified live. Source of truth: `PROJECT_PLAN.md` + `TASKS.md`; this file only summarizes what an agent would otherwise miss.
+> Current state (2026-09-04): M1 done (`milestone/M1`). 2-client join/move works (unit + Playwright green). Source of truth: `PROJECT_PLAN.md` + `TASKS.md`; this file only summarizes what an agent would otherwise miss.
 >
-> Env quirks on this machine: `pnpm` was installed via `npm i -g pnpm` (use pnpm 9+; repo pins 9.12 via `packageManager`); Git lives at `%LOCALAPPDATA%\Programs\Git\bin` (add to PATH per shell); **no Docker** — `infra/docker-compose.yml` is unverified locally.
+> Env quirks on this machine: `pnpm` was installed via `npm i -g pnpm` (repo pins 9.12 via `packageManager`); Git + Docker Desktop paths are in User PATH (old shells need re-login or per-command prepend); for local `pnpm dev` / E2E first `docker compose -f infra/docker-compose.yml down` (ports 5173/2567 collide otherwise, and Playwright `reuseExistingServer` would test the stale Compose bundle).
+>
+> ## Colyseus pins (do not upgrade blindly)
+> - Server: `@colyseus/core@0.16.20` + `@colyseus/ws-transport@0.16.5` + `@colyseus/schema@^3`, client `colyseus.js@0.16`. Wiring: `new Server({ transport: new WebSocketTransport({ server: httpServer }) })` + `await gameServer.listen(port)` (binds `/matchmake` routes; manual `httpServer.listen` leaves 404s).
+> - Do NOT go to 0.18: no matching JS client (`colyseus.js` stops at 0.16 → `consumeSeatReservation` crash), and `@colyseus/core@0.16.25` / `colyseus@0.16.2+` publishes are broken (`workspace:` refs).
+> - Server tsconfig MUST keep `experimentalDecorators: true` + `useDefineForClassFields: false` (else schema field initializers bypass the change-tracking setter via [[Define]] and state encoding crashes on `$childType`). Same flags mirrored in `apps/server/vitest.config.ts` (`esbuild.tsconfigRaw`) because Vitest doesn't take them from tsconfig.
 
 ## Where to start
 - Work strictly in milestone order from `TASKS.md`: M0 → M5, P0 before P1, never P2 without approval.

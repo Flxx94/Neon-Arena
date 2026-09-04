@@ -21,3 +21,37 @@ body {
   border: 1px solid #0ff3;
   pointer-events: none;
 }
+#join {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 5, 16, 0.85);
+  color: #0ff;
+  font-family: monospace;
+}
+#join[hidden] {
+  display: none;
+}
+#join h1 {
+  text-shadow: 0 0 18px #0ff;
+  letter-spacing: 4px;
+}
+#join input,
+#join button {
+  font: 16px monospace;
+  padding: 8px 12px;
+  background: #0a0a20;
+  color: #0ff;
+  border: 1px solid #0ff;
+}
+#join button {
+  cursor: pointer;
+}
+#join-error {
+  color: #f66;
+  min-height: 1.5em;
+}

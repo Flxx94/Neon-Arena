@@ -3,7 +3,12 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "lib": ["ES2022"]
+    "lib": ["ES2022"],
+    "experimentalDecorators": true,
+    // WICHTIG fuer @colyseus/schema: Feld-Initialisierer muessen den Schema-Setter
+    // aufrufen (setzt $childType etc.). Mit define-Semantik (ES2022-Default) wuerde
+    // [[Define]] den Setter umgehen und State-Encoding crasht.
+    "useDefineForClassFields": false
   },
   "include": ["src"]
 }

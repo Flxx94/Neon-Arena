@@ -13,6 +13,9 @@
     "test:e2e": "echo \"no e2e in server\""
   },
   "dependencies": {
+    "@colyseus/core": "0.16.20",
+    "@colyseus/schema": "^3.0.76",
+    "@colyseus/ws-transport": "0.16.5",
     "@neon-arena/shared": "workspace:*",
     "cors": "^2.8.5",
     "express": "^4.21.2",
@@ -22,6 +25,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^22.10.2",
+    "colyseus.js": "^0.16.22",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^3.0.0"
