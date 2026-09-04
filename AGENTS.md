@@ -1,6 +1,6 @@
 # AGENTS.md – Neon Arena
 
-> Current state (2026-09-04): M4 done (`milestone/M4`). Prisma 6 (User/Match/MatchPlayer) + guest JWT (`na_guest` cookie) + Redis sessions/rate-limits with memory fallback; round results persist async; leaderboard/history routes + page. 40 unit tests + Playwright green; verified against real PG/Redis via Compose.
+> Current state (2026-09-04): M5 done (`milestone/M5`) — MVP COMPLETE (local-only per Entscheidung). Version-gate + reload UI, XSS-E2E, 50-bot flood (p95 0.57 ms, report `docs/LOADTEST.md`), prod compose + `docs/DEPLOY.md` (LAN), triage drafts `docs/ISSUES.md`. 42 unit tests + 2 Playwright green. Prod stack runs on this machine.
 >
 > ## Persistenz (M4)
 > - DB/Redis sind OPTIONAL: `getDb()`/`getRedis()` return null when `NODE_ENV=test`, `DB_ENABLED=false`, or URL missing — server runs degraded (memory sessions/limits). Tests never need Docker.

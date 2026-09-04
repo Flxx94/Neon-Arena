@@ -96,8 +96,8 @@ export class ArenaRoom extends Room<ArenaState> {
       throw new Error('INVALID_JOIN')
     }
     if (parsed.data.protocolV !== PROTOCOL_V) {
-      // Voller Version-Gate (Kick + Hinweis) folgt in M5-01.
-      throw new Error('PROTOCOL_MISMATCH')
+      // M5-01: Version-Gate mit Reload-Hinweis.
+      throw new Error('PROTOCOL_MISMATCH:Bitte neu laden')
     }
     // M4-05: Join-Limit 5/min/IP.
     if (!(await checkLimit(getRateStore(), `join:${clientIp(client)}`, 5, 60_000))) {

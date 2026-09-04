@@ -12,6 +12,7 @@ const joinEl = document.getElementById('join') as HTMLDivElement
 const nickInput = document.getElementById('nickname') as HTMLInputElement
 const playBtn = document.getElementById('play') as HTMLButtonElement
 const joinError = document.getElementById('join-error') as HTMLParagraphElement
+const reloadBtn = document.getElementById('reload') as HTMLButtonElement
 const hudEl = document.getElementById('hud') as HTMLDivElement
 const hpFill = document.getElementById('hpfill') as HTMLDivElement
 const timerEl = document.getElementById('timer') as HTMLDivElement
@@ -48,6 +49,8 @@ let lastTimerShown = ''
 muteBtn.addEventListener('click', () => {
   muteBtn.textContent = sfx.toggleMute() ? '🔇' : '🔊'
 })
+
+reloadBtn.addEventListener('click', () => location.reload())
 
 function fmtTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -112,7 +115,14 @@ playBtn.addEventListener('click', () => {
       lastAlive = true
     })
     .catch((err: unknown) => {
-      joinError.textContent = err instanceof Error ? err.message : 'Join fehlgeschlagen'
+      const msg = err instanceof Error ? err.message : 'Join fehlgeschlagen'
+      // M5-01: Version-Gate mit Reload-Hinweis.
+      if (msg.includes('PROTOCOL_MISMATCH')) {
+        joinError.textContent = 'Neue Version verfügbar – bitte neu laden.'
+        reloadBtn.hidden = false
+      } else {
+        joinError.textContent = msg
+      }
       playBtn.disabled = false
     })
 })

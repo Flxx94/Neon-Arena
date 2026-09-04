@@ -22,8 +22,19 @@ async function projectileCount(page: Page): Promise<number> {
   return page.evaluate(() => window.__arena.projectiles().length)
 }
 
-// M1-05: 2 Clients joinen, sehen einander, Bewegung erscheint gegenueber (<200 ms lokal).
+// M5-02: Script-Nickname wird clientseitig blockiert (Server lehnt ebenfalls ab).
+test('Script-Nickname wird abgewiesen', async ({ page }) => {
+  await page.goto('/')
+  await page.fill('#nickname', '<script>alert(1)</script>')
+  await page.click('#play')
+  await expect(page.locator('#join')).toBeVisible()
+  await expect(page.locator('#join-error')).toContainText('Nickname')
+  expect(await page.evaluate(() => window.__arena.connected())).toBe(false)
+})
+
+// M1-05: 2 Clients joinen, sehen einander, Bewegung erscheint gegenueber.
 // M2: Schuss erzeugt serverseitig Projektile.
+// M3: Scoreboard listet beide Nicknames.
 test('2 Clients joinen und bewegen sich', async ({ browser }) => {
   const ctxA = await browser.newContext()
   const ctxB = await browser.newContext()

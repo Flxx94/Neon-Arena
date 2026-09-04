@@ -1,3 +1,4 @@
+# Neon Arena – lokaler Prod-Stack (M5-04, local-only, kein Cloud-Deploy)
 services:
   client:
     build:
@@ -9,8 +10,7 @@ services:
       - "5173:80"
     environment:
       VITE_SERVER_URL: http://localhost:2567
-    depends_on:
-      - server
+    restart: unless-stopped
 
   server:
     build:
@@ -23,11 +23,13 @@ services:
     environment:
       PORT: 2567
       CLIENT_URL: http://localhost:5173
+      NODE_ENV: production
       DATABASE_URL: postgresql://neon:neon@postgres:5432/neon_arena
       REDIS_URL: redis://redis:6379
     depends_on:
       - postgres
       - redis
+    restart: unless-stopped
     command: sh -c "cd apps/server && ./node_modules/.bin/prisma migrate deploy && node dist/index.js"
 
   postgres:
@@ -40,11 +42,16 @@ services:
       POSTGRES_DB: neon_arena
     volumes:
       - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
 
 volumes:
   pgdata:
+  redisdata:

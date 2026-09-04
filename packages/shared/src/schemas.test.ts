@@ -13,6 +13,10 @@ describe('shared schemas (M1-01 Vorgriff)', () => {
     ).toThrow()
   })
 
+  it('alte Protokoll-Version passiert Schema (Gate entscheidet, M5-01)', () => {
+    expect(joinSchema.parse({ nickname: 'Neo_1', protocolV: 0 }).protocolV).toBe(0)
+  })
+
   it('stript unbekannte Felder in Input', () => {
     const parsed = inputSchema.parse({
       kind: 'input',

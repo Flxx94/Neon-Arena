@@ -95,6 +95,21 @@ describe('Matchmaking + Reconnect (M3-01/M3-02)', () => {
     }
   }, 60_000)
 
+  it('alte Protokoll-Version wird mit Reload-Hinweis abgelehnt (M5-01)', async () => {
+    const started = await startGameServer(0)
+    const port = (started.httpServer.address() as AddressInfo).port
+    try {
+      const { identity } = await issueGuest('Oldie')
+      const client = new Client(`ws://127.0.0.1:${port}`)
+      await expect(
+        client.joinOrCreate('arena', { nickname: 'Oldie', protocolV: 0, userId: identity.userId }),
+      ).rejects.toThrow(/PROTOCOL_MISMATCH/)
+    } finally {
+      await started.gameServer.gracefullyShutdown(false)
+      started.httpServer.close()
+    }
+  }, 60_000)
+
   it('Rundenende wird an Clients gebroadcastet (M4-03-Pfad)', async () => {
     process.env.ROUND_SECONDS_OVERRIDE = '3'
     const started = await startGameServer(0)

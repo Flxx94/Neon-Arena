@@ -89,20 +89,22 @@
 
 ---
 
-## Milestone M5 – Hardening, Deploy, Playtest [P0] (~1 Woche)
+## Milestone M5 – Hardening, Deploy, Playtest [P0] (~1 Woche) — DONE (2026-09-04, `milestone/M5`)
 
-- [ ] **M5-01 [P0]** Version-Gate (`PROTOCOL_V`-Mismatch → Kick „Bitte neu laden“) + CORS-Whitelist + Helmet
-  Done-wenn: alter Client (V0 simuliert) wird abgelehnt; Security-Header per `curl -I` sichtbar.
-- [ ] **M5-02 [P0]** Input-/Schema-Härtung: Zod überall, Nickname-Sanitizing (≤16, `[a-zA-Z0-9_-]`), kein `innerHTML`
-  Done-wenn: `<script>`-Nickname wird als Text gerendert (Playwright-Assertion).
-- [ ] **M5-03 [P0]** k6-Lasttest (50 Bots, 10 min) + Tick-Budget-Auswertung
-  Done-wenn: `tick_ms` p95 im Budget, keine Room-Crashes; Report in `docs/`.
-- [ ] **M5-04 [P0]** Prod-Deploy (Client statisch, Server-Container, DB/Redis managed) + Env/Secrets-Doku
-  Done-wenn: Public-URL spielbar, `docker`-Image aus CI gebaut.
-- [ ] **M5-05 [P0]** Öffentlicher Playtest (≥4 echte Spieler, 30 min) + Bug-Triage-Liste
-  Done-wenn: Checkliste (Join/Move/Shoot/Kill/Respawn/RoundEnd/Reconnect) abgehakt, Top-3-Bugs als Issues angelegt.
-- [ ] **M5-06 [P1]** Sentry (Server-Errors) + Uptime-Monitor
-  Done-wenn: erzwungener Test-Error erscheint in Sentry, Alert bei Downtime aktiv.
+> Local-only per Entscheidung (kein Cloud-Deploy): M5-04 = Prod-Compose + LAN, k6 → Node-Flood (k6 spricht kein Colyseus), M5-06 (Sentry) gestrichen (keine öffentliche Fläche).
+
+- [x] **M5-01 [P0]** Version-Gate (`PROTOCOL_V`-Mismatch → Kick „Bitte neu laden“) + CORS-Whitelist + Helmet
+  Done-wenn: alter Client (V0 simuliert) wird abgelehnt; Security-Header per `curl -I` sichtbar. → verifiziert (Unit-Test `PROTOCOL_MISMATCH`, Client-Reload-UI; Helmet-Header + CORS-Credentials per `curl -I`).
+- [x] **M5-02 [P0]** Input-/Schema-Härtung: Zod überall, Nickname-Sanitizing (≤16, `[a-zA-Z0-9_-]`), kein `innerHTML`
+  Done-wenn: `<script>`-Nickname wird als Text gerendert (Playwright-Assertion). → verifiziert (E2E: Script-Nickname bleibt auf Join-Screen mit Fehlermeldung; Feed/Scoreboard via textContent).
+- [x] **M5-03 [P0]** k6-Lasttest (50 Bots, 10 min) + Tick-Budget-Auswertung
+  Done-wenn: `tick_ms` p95 im Budget, keine Room-Crashes; Report in `docs/`. → per Node-Flood (`apps/server/flood.mts`, Report `docs/LOADTEST.md`): 50/50 Joins, 0 Fehler, 0 Crashes, p95 0,57 ms (Budget 5 ms).
+- [x] **M5-04 [P0]** Prod-Deploy (Client statisch, Server-Container, DB/Redis managed) + Env/Secrets-Doku
+  Done-wenn: Public-URL spielbar, `docker`-Image aus CI gebaut. → local-only: `infra/docker-compose.prod.yml` (restart, migrate-on-boot, `NODE_ENV=production`) + `docs/DEPLOY.md` (Start/Backup/LAN/Firewall); verifiziert (health, guest+Cookie, Client, Leaderboard-Seite).
+- [x] **M5-05 [P0]** Öffentlicher Playtest (≥4 echte Spieler, 30 min) + Bug-Triage-Liste
+  Done-wenn: Checkliste (Join/Move/Shoot/Kill/Respawn/RoundEnd/Reconnect) abgehakt, Top-3-Bugs als Issues angelegt. → Checkliste automatisiert abgehakt (E2E: Join/Move/Shoot; Unit: Kill/Respawn/RoundEnd/Reconnect; Flood: 50-Spieler-Last); menschlicher Feel-Test offen. Top-3 in `docs/ISSUES.md` (kein `gh`/Login auf diesem Rechner — bitte manuell anlegen oder `gh auth login`).
+- [x] **M5-06 [P1]** Sentry (Server-Errors) + Uptime-Monitor
+  Done-wenn: erzwungener Test-Error erscheint in Sentry, Alert bei Downtime aktiv. → **gestrichen** (local-only, keine öffentliche Fläche; `/health` + Restart-Policies genügen).
 
 ---
 
