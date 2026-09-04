@@ -5,6 +5,7 @@ export interface RenderPlayer {
   y: number
   hp: number
   alive: boolean
+  shield: number
 }
 
 export interface RenderProjectile {
@@ -13,9 +14,17 @@ export interface RenderProjectile {
   y: number
 }
 
+export interface RenderPickup {
+  id: string
+  kind: string
+  x: number
+  y: number
+}
+
 export interface RenderState {
   players: RenderPlayer[]
   projectiles: RenderProjectile[]
+  pickups: RenderPickup[]
   ownId: string | null
 }
 

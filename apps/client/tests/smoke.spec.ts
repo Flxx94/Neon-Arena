@@ -7,8 +7,8 @@ async function joinAs(page: Page, nickname: string) {
   await page.waitForFunction(() => window.__arena.connected(), null, { timeout: 15_000 })
 }
 
-async function playerCount(page: Page): Promise<number> {
-  return page.evaluate(() => window.__arena.players().length)
+async function playerNames(page: Page): Promise<string[]> {
+  return page.evaluate(() => window.__arena.players().map((p) => p.nickname))
 }
 
 async function ownX(page: Page, nickname: string): Promise<number> {
@@ -34,10 +34,18 @@ test('2 Clients joinen und bewegen sich', async ({ browser }) => {
     await joinAs(pageA, 'Alpha')
     await joinAs(pageB, 'Beta')
 
+    // Beide echten Spieler sehen einander (Bots fuellen ggf. auf).
     await expect
-      .poll(async () => playerCount(pageA), { timeout: 15_000 })
-      .toBe(2)
-    await expect.poll(async () => playerCount(pageB), { timeout: 15_000 }).toBe(2)
+      .poll(async () => playerNames(pageA), { timeout: 15_000 })
+      .toEqual(expect.arrayContaining(['Alpha', 'Beta']))
+    await expect
+      .poll(async () => playerNames(pageB), { timeout: 15_000 })
+      .toEqual(expect.arrayContaining(['Alpha', 'Beta']))
+
+    // M3: Scoreboard lebt und listet beide Nicknames.
+    await expect(pageA.locator('#scoreboard')).toBeVisible()
+    await expect(pageA.locator('#scoreboard')).toContainText('Alpha')
+    await expect(pageA.locator('#scoreboard')).toContainText('Beta')
 
     const x0 = await ownX(pageA, 'Alpha')
     expect(Number.isFinite(x0)).toBe(true)

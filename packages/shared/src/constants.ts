@@ -41,4 +41,19 @@ export const OBSTACLES: ObstacleRect[] = [
   { x: 1080, y: 300, w: 120, h: 300 },
 ]
 
+// --- Runden & Pickups & Bots (M3) ---
+export const ROUND_END_SECONDS = 10
+export const SURVIVAL_BONUS = 10
+export const PICKUP_SPAWN_INTERVAL_MS = 12000
+export const PICKUP_MAX_ACTIVE = 3
+export const PICKUP_HP_AMOUNT = 50
+export const PICKUP_SHIELD_AMOUNT = 50
+export const PICKUP_RADIUS = 12
+export const SHIELD_MAX = 50
+export const FILL_MIN_PLAYERS = 4
+export const MAX_BOTS_PER_ROOM = 6
+export const BOT_THINK_TICKS = 10
+export const BOT_FIRE_RANGE = 550
+export const BOT_PREFERRED_RANGE = 320
+
 export { PROTOCOL_V }

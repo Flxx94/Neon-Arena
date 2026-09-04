@@ -2,8 +2,9 @@ import { ARENA_HEIGHT, ARENA_WIDTH } from '@neon-arena/shared'
 import { SoundFX } from './game/Audio.js'
 import { CanvasRenderer } from './game/CanvasRenderer.js'
 import { Input } from './game/Input.js'
+import { Interpolator } from './game/Interpolation.js'
 import { Prediction } from './game/Prediction.js'
-import { NetClient, type ClientPlayer, type ClientProjectile } from './net/client.js'
+import { NetClient, type ClientPickup, type ClientPlayer, type ClientProjectile } from './net/client.js'
 
 const canvas = document.getElementById('game') as HTMLCanvasElement
 const debugEl = document.getElementById('debug') as HTMLDivElement
@@ -13,8 +14,12 @@ const playBtn = document.getElementById('play') as HTMLButtonElement
 const joinError = document.getElementById('join-error') as HTMLParagraphElement
 const hudEl = document.getElementById('hud') as HTMLDivElement
 const hpFill = document.getElementById('hpfill') as HTMLDivElement
+const timerEl = document.getElementById('timer') as HTMLDivElement
 const muteBtn = document.getElementById('mute') as HTMLButtonElement
 const deadEl = document.getElementById('dead') as HTMLDivElement
+const scoreEl = document.getElementById('scoreboard') as HTMLDivElement
+const feedEl = document.getElementById('killfeed') as HTMLDivElement
+const roundEl = document.getElementById('round') as HTMLDivElement
 const debug = new URLSearchParams(location.search).has('debug')
 debugEl.hidden = !debug
 
@@ -22,10 +27,14 @@ const renderer = new CanvasRenderer(canvas)
 const input = new Input()
 const net = new NetClient()
 const prediction = new Prediction()
+const interp = new Interpolator()
 const sfx = new SoundFX()
 
 let players: ClientPlayer[] = []
 let projectiles: ClientProjectile[] = []
+let pickups: ClientPickup[] = []
+let phase = 'play'
+let winner = ''
 let connected = false
 let fps = 0
 let frames = 0
@@ -33,10 +42,27 @@ let lastFpsAt = performance.now()
 let lastHp = 100
 let lastAlive = true
 let lastHpShown = -1
+let lastScoreSig = ''
+let lastTimerShown = ''
 
 muteBtn.addEventListener('click', () => {
   muteBtn.textContent = sfx.toggleMute() ? '🔇' : '🔊'
 })
+
+function fmtTime(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function pushKill(by: string, victim: string): void {
+  const line = document.createElement('div')
+  // Sicher: textContent, nie innerHTML (Nicknames!).
+  line.textContent = `${by} ▸ ${victim}`
+  feedEl.prepend(line)
+  while (feedEl.children.length > 5) feedEl.lastChild?.remove()
+  setTimeout(() => line.remove(), 5000)
+}
 
 playBtn.addEventListener('click', () => {
   const nickname = nickInput.value.trim()
@@ -53,6 +79,11 @@ playBtn.addEventListener('click', () => {
       onSnapshot: (snapshot) => {
         players = snapshot.players
         projectiles = snapshot.projectiles
+        pickups = snapshot.pickups
+        phase = snapshot.phase
+        winner = snapshot.winner
+        timerEl.textContent = fmtTime(snapshot.timeLeft)
+        interp.push(snapshot.at, players)
         const own = players.find((p) => p.id === net.sessionId)
         if (own) {
           if (own.hp < lastHp) sfx.hit()
@@ -62,18 +93,21 @@ playBtn.addEventListener('click', () => {
           prediction.reconcile(own.x, own.y, own.ackSeq)
         }
       },
+      onKill: (by, victim) => pushKill(by, victim),
       onError: (msg) => {
         joinError.textContent = msg
         playBtn.disabled = false
         connected = false
         joinEl.hidden = false
         hudEl.hidden = true
+        scoreEl.hidden = true
       },
     })
     .then(() => {
       connected = true
       joinEl.hidden = true
       hudEl.hidden = false
+      scoreEl.hidden = false
       lastHp = 100
       lastAlive = true
     })
@@ -118,6 +152,20 @@ setInterval(() => {
   }
 }, 1000 / 30)
 
+function renderScoreboard(): void {
+  const sorted = [...players].sort((a, b) => b.score - a.score || b.kills - a.kills)
+  const sig = sorted.map((p) => `${p.id}:${p.score}:${p.kills}:${p.deaths}`).join('|')
+  if (sig === lastScoreSig) return
+  lastScoreSig = sig
+  scoreEl.replaceChildren()
+  for (const p of sorted.slice(0, 12)) {
+    const row = document.createElement('div')
+    row.textContent = `${p.nickname} ${p.score} (${p.kills}/${p.deaths})`
+    if (p.id === net.sessionId) row.style.fontWeight = 'bold'
+    scoreEl.appendChild(row)
+  }
+}
+
 // Render-Loop 60 fps.
 function frame() {
   frames++
@@ -131,14 +179,17 @@ function frame() {
     }
   }
 
-  // Eigene Position aus Prediction ueberschreiben (M2-05).
+  // Eigene Position predicted (M2-05), Gegner interpoliert (M3-05).
   const ownId = net.sessionId
-  const rendered = players.map((p) =>
-    p.id === ownId ? { ...p, x: prediction.predicted.x, y: prediction.predicted.y } : p,
-  )
-  renderer.render({ players: rendered, projectiles, ownId })
+  const rendered = players.map((p) => {
+    if (p.id === ownId) return { ...p, x: prediction.predicted.x, y: prediction.predicted.y }
+    const interpPos = interp.sample(p.id, now)
+    return interpPos ? { ...p, x: interpPos.x, y: interpPos.y } : p
+  })
+  renderer.render({ players: rendered, projectiles, pickups, ownId })
+  renderScoreboard()
 
-  // HUD: HP + Tod.
+  // HUD: HP + Tod + Runde.
   const own = players.find((p) => p.id === ownId)
   if (own) {
     if (own.hp !== lastHpShown) {
@@ -146,7 +197,16 @@ function frame() {
       hpFill.style.width = `${own.hp}%`
       hpFill.style.background = own.hp > 50 ? '#0f0' : own.hp > 25 ? '#ff0' : '#f00'
     }
-    deadEl.hidden = own.alive
+    deadEl.hidden = own.alive || phase !== 'play'
+  }
+  const timerText = phase === 'play' ? null : `🏆 ${winner}`
+  if (timerText && lastTimerShown !== timerText) {
+    lastTimerShown = timerText
+    roundEl.textContent = timerText
+    roundEl.hidden = false
+  } else if (!timerText && !roundEl.hidden) {
+    lastTimerShown = ''
+    roundEl.hidden = true
   }
   requestAnimationFrame(frame)
 }

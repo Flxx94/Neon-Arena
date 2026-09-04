@@ -31,5 +31,14 @@ export interface PlayerSnapshot {
   hp: number
 }
 
+export type PickupKind = 'hp' | 'shield'
+
+export interface PickupSnapshot {
+  id: string
+  kind: PickupKind
+  x: number
+  y: number
+}
+
 export type ServerMessage = SnapshotMessage | EventMessage
 export type ClientMessage = InputMessage

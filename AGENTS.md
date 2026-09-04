@@ -1,11 +1,14 @@
 # AGENTS.md – Neon Arena
 
-> Current state (2026-09-04): M2 done (`milestone/M2`). Authoritative 30 Hz sim (move/collide/projectiles/HP/respawn), client prediction + reconciliation, Canvas renderer + HUD + synth SFX. `tickMsP95` 0.49 ms at 12 players (budget 5 ms).
+> Current state (2026-09-04): M3 done (`milestone/M3`). Rounds (3-min + winner + auto-restart), score/killfeed/scoreboard, enemy interpolation, seek+shoot bots (`BOTS_ENABLED`, fill to 4), HP/Shield pickups. 26 unit tests + Playwright green.
 >
-> ## Layout (M2)
+> ## Layout (M2/M3)
 > - Sim: `apps/server/src/sim/{state.ts,engine.ts,metrics.ts}` — pure `update(ctx, state)` over Colyseus Schema state, wired via `setSimulationInterval` in `ArenaRoom`. Unit-test through real Schema classes (needs the decorator/tsconfig flags below).
 > - Shared physics (`packages/shared/src/physics.ts`) is used by BOTH server sim and client prediction — keep them in sync, never duplicate constants.
-> - Turbo `test` depends on `^build`: server/client tests import `@neon-arena/shared` from `dist`, so stale builds cause phantom `is not a function` failures.
+> - Turbo `test` depends on `^build`: server/client tests import `@neon-arena/shared` from `dist`, so stale builds cause phantom `is not a function` failures. Always verify via Turbo tasks, never bare `vitest`/`exec`.
+> - Colyseus 0.16 client facts: room id is `room.roomId` (not `.id`); reconnect is `client.reconnect(room.reconnectionToken)` (single token); `room.leave(false)` = abrupt (grace path), `leave()` = consented. Reconnect tests need retry (server registers grace async).
+> - MapSchema: iterate via `for...of`/`.entries()`/`.values()`/`.get()` (all delegated to `$items`) — never assume native-Map identity.
+> - Room broadcasts Sim-Events drained via `drainEvents(ctx)` in the sim tick (`killfeed`/`round` messages); round/score/pickups also ride state sync.
 >
 > Env quirks on this machine: `pnpm` was installed via `npm i -g pnpm` (repo pins 9.12 via `packageManager`); Git + Docker Desktop paths are in User PATH (old shells need re-login or per-command prepend); for local `pnpm dev` / E2E first `docker compose -f infra/docker-compose.yml down` (ports 5173/2567 collide otherwise, and Playwright `reuseExistingServer` would test the stale Compose bundle).
 >

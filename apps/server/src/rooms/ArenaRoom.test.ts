@@ -1,8 +1,16 @@
 import { Room } from 'colyseus.js'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Client } from 'colyseus.js'
 import type { AddressInfo } from 'net'
 import { startGameServer } from '../index.js'
+
+beforeEach(() => {
+  process.env.BOTS_ENABLED = 'false'
+})
+
+afterEach(() => {
+  delete process.env.BOTS_ENABLED
+})
 
 async function startEphemeral() {
   const started = await startGameServer(0)

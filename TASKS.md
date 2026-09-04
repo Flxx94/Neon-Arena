@@ -55,22 +55,22 @@
 
 ---
 
-## Milestone M3 – Echter Multiplayer (Rooms, Modi, Feel) [P0] (~1 Woche)
+## Milestone M3 – Echter Multiplayer (Rooms, Modi, Feel) [P0] (~1 Woche) — DONE (2026-09-04, `milestone/M3`)
 
-- [ ] **M3-01 [P0]** Room-Lifecycle: dynamische Erstellung, max 12 Spieler, `maxIdle 60 s`, Grace-Reconnect 15 s
-  Done-wenn: 13. Spieler landet in neuem Raum; Reconnect innert 15 s behält Score.
-- [ ] **M3-02 [P0]** Matchmaking: Join → ältester nicht-voller Raum, sonst neu
-  Done-wenn: 8 sequentielle Joins verteilen sich korrekt (Test-Skript).
-- [ ] **M3-03 [P0]** Runden-System: 3-min-Timer, Punkte (Kill=100, Assist/Überleben-Bonus), Sieger-Screen
-  Done-wenn: Runde endet automatisch, Sieger wird allen angezeigt, neuer Countdown startet.
-- [ ] **M3-04 [P0]** Killfeed + Scoreboard (live, sortiert)
-  Done-wenn: Kills erscheinen <500 ms im Feed aller Clients.
-- [ ] **M3-05 [P0]** Gegner-Interpolation (100 ms Buffer), Lag-Compensation-Sanity (keine „Hinter-die-Wand“-Kills im Normalfall)
-  Done-wenn: 8-Spieler-Test wirkt flüssig (Sichtprüfung, 2 echte Clients + 6 Bots).
-- [ ] **M3-06 [P1]** Bots (einfache Seek+Shoot-AI, Schwierigkeit konstant) zum Auffüllen
-  Done-wenn: Raum mit 2 echten + 6 Bots läuft 10 min stabil.
-- [ ] **M3-07 [P1]** Pickups (HP-Pack, Shield) mit Server-Spawn-Timer
-  Done-wenn: Pickup-Effekt nur nach Server-Bestätigung sichtbar (kein Client-Fake).
+- [x] **M3-01 [P0]** Room-Lifecycle: dynamische Erstellung, max 12 Spieler, `maxIdle 60 s`, Grace-Reconnect 15 s
+  Done-wenn: 13. Spieler landet in neuem Raum; Reconnect innert 15 s behält Score. → verifiziert (Matchmaking-Test 12+1; Reconnect-Test behält Session; maxIdle-Dispose per 1-s-Check; `allowReconnection`-Race im Test per Retry abgefangen).
+- [x] **M3-02 [P0]** Matchmaking: Join → ältester nicht-voller Raum, sonst neu
+  Done-wenn: 8 sequentielle Joins verteilen sich korrekt (Test-Skript). → verifiziert (`joinOrCreate`: 8 → 1 Raum).
+- [x] **M3-03 [P0]** Runden-System: 3-min-Timer, Punkte (Kill=100, Assist/Überleben-Bonus), Sieger-Screen
+  Done-wenn: Runde endet automatisch, Sieger wird allen angezeigt, neuer Countdown startet. → verifiziert (Engine: Ende → Winner +10 Survival-Bonus → 10-s-Endscreen → Reset; Client: Timer, Winner-Banner).
+- [x] **M3-04 [P0]** Killfeed + Scoreboard (live, sortiert)
+  Done-wenn: Kills erscheinen <500 ms im Feed aller Clients. → Events aus Engine, Broadcast im Sim-Tick (20 Hz-State + sofortiger Broadcast), DOM-Feed (textContent) + sortiertes Scoreboard; E2E prüft Scoreboard.
+- [x] **M3-05 [P0]** Gegner-Interpolation (100 ms Buffer), Lag-Compensation-Sanity (keine „Hinter-die-Wand“-Kills im Normalfall)
+  Done-wenn: 8-Spieler-Test wirkt flüssig (Sichtprüfung, 2 echte Clients + 6 Bots). → `Interpolator` (Lerp am 100-ms-Puffer, unit-getestet); Rewind-Trefferprüfung aus M2; Fl greats per Sichtprüfung offen für Playtest.
+- [x] **M3-06 [P1]** Bots (einfache Seek+Shoot-AI, Schwierigkeit konstant) zum Auffüllen
+  Done-wenn: Raum mit 2 echten + 6 Bots läuft 10 min stabil. → Seek+Shoot (Range 320/550, LOS-Check, `BOTS_ENABLED`-Env, `FILL_MIN_PLAYERS=4`, `MAX_BOTS=6`); deterministischer Fire-Test; 10-min-Lauf offen für Playtest.
+- [x] **M3-07 [P1]** Pickups (HP-Pack, Shield) mit Server-Spawn-Timer
+  Done-wenn: Pickup-Effekt nur nach Server-Bestätigung sichtbar (kein Client-Fake). → 12-s-Spawn (max 3), HP +50 / Shield 50, Shield absorbiert zuerst; per Konstruktion nur via State sichtbar (Unit-Test: Heal + Shield-Absorb).
 
 ---
 

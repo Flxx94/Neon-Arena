@@ -1,4 +1,4 @@
-import { ARENA_HEIGHT, ARENA_WIDTH, OBSTACLES, PLAYER_RADIUS, PROJECTILE_RADIUS } from '@neon-arena/shared'
+import { ARENA_HEIGHT, ARENA_WIDTH, OBSTACLES, PICKUP_RADIUS, PLAYER_RADIUS, PROJECTILE_RADIUS } from '@neon-arena/shared'
 import type { RenderState, Renderer } from './Renderer.js'
 
 /** Plain-Canvas-Renderer im Neon-Look (ADR-001). ShadowBlur sparsam (M2-06: 60 fps). */
@@ -52,6 +52,33 @@ export class CanvasRenderer implements Renderer {
       ctx.strokeRect(this.ox + o.x * this.scale, this.oy + o.y * this.scale, o.w * this.scale, o.h * this.scale)
     }
 
+    // Pickups (M3-07): HP = gruenes Kreuz, Shield = blauer Ring.
+    for (const pu of state.pickups) {
+      const s = this.worldToScreen(pu.x, pu.y)
+      const r = Math.max(4, PICKUP_RADIUS * this.scale)
+      if (pu.kind === 'hp') {
+        ctx.strokeStyle = '#0f0'
+        ctx.shadowBlur = 10
+        ctx.shadowColor = '#0f0'
+        ctx.lineWidth = 3
+        ctx.beginPath()
+        ctx.moveTo(s.x - r, s.y)
+        ctx.lineTo(s.x + r, s.y)
+        ctx.moveTo(s.x, s.y - r)
+        ctx.lineTo(s.x, s.y + r)
+        ctx.stroke()
+      } else {
+        ctx.strokeStyle = '#39f'
+        ctx.shadowBlur = 10
+        ctx.shadowColor = '#39f'
+        ctx.lineWidth = 3
+        ctx.beginPath()
+        ctx.arc(s.x, s.y, r, 0, Math.PI * 2)
+        ctx.stroke()
+      }
+      ctx.shadowBlur = 0
+    }
+
     // Projektile.
     for (const pr of state.projectiles) {
       const s = this.worldToScreen(pr.x, pr.y)
@@ -78,6 +105,14 @@ export class CanvasRenderer implements Renderer {
       ctx.shadowColor = own ? '#0ff' : '#f0f'
       ctx.fill()
       ctx.shadowBlur = 0
+      // Shield-Ring.
+      if (p.shield > 0) {
+        ctx.strokeStyle = '#39f'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(s.x, s.y, r + 4, 0, Math.PI * 2)
+        ctx.stroke()
+      }
       // Nickname als Canvas-Text (sicher: fillText, kein HTML).
       ctx.fillStyle = '#fff'
       ctx.font = '12px monospace'
