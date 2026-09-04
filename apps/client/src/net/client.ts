@@ -1,16 +1,33 @@
 import { Client, Room } from 'colyseus.js'
-import { MAX_INPUT_PER_SECOND, type PlayerSnapshot } from '@neon-arena/shared'
+import { MAX_INPUT_PER_SECOND } from '@neon-arena/shared'
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:2567'
 
 export interface NetEvents {
-  onPlayers: (players: ClientPlayer[]) => void
+  onSnapshot: (snapshot: WorldSnapshot) => void
   onError: (message: string) => void
 }
 
 /** Lokale Sicht auf einen Spieler (inkl. Nickname fuers UI/Tests). */
-export interface ClientPlayer extends PlayerSnapshot {
+export interface ClientPlayer {
+  id: string
   nickname: string
+  x: number
+  y: number
+  hp: number
+  alive: boolean
+  ackSeq: number
+}
+
+export interface ClientProjectile {
+  id: string
+  x: number
+  y: number
+}
+
+export interface WorldSnapshot {
+  players: ClientPlayer[]
+  projectiles: ClientProjectile[]
 }
 
 /** M1-Net-Layer: Connect, Snapshot-Empfang, Input-Senden mit seq (30/s). */
@@ -18,8 +35,8 @@ export class NetClient {
   private client = new Client(SERVER_URL)
   private room: Room | null = null
   private seq = 0
-  /** Ring-Buffer der letzten Snapshots (M2: Interpolation/Reconciliation). */
-  snapshots: ClientPlayer[][] = []
+  /** Ring-Buffer der letzten Snapshots (M3: Interpolation). */
+  snapshots: WorldSnapshot[] = []
 
   get sessionId(): string | null {
     return this.room?.sessionId ?? null
@@ -29,26 +46,37 @@ export class NetClient {
     this.room = await this.client.joinOrCreate('arena', { nickname, protocolV: 1 })
     this.room.onStateChange((state) => {
       const players: ClientPlayer[] = [...state.players.entries()].map(
-        ([id, p]: [string, { x: number; y: number; hp: number; nickname: string }]) => ({
+        ([id, p]: [
+          string,
+          { x: number; y: number; hp: number; nickname: string; alive: boolean; ackSeq: number },
+        ]) => ({
           id,
           x: p.x,
           y: p.y,
           hp: p.hp,
           nickname: p.nickname,
+          alive: p.alive,
+          ackSeq: p.ackSeq,
         }),
       )
-      this.snapshots.push(players)
+      const projectiles: ClientProjectile[] = [...state.projectiles.values()].map(
+        (p: { id: string; x: number; y: number }) => ({ id: p.id, x: p.x, y: p.y }),
+      )
+      const snapshot = { players, projectiles }
+      this.snapshots.push(snapshot)
       if (this.snapshots.length > 10) this.snapshots.shift()
-      events.onPlayers(players)
+      events.onSnapshot(snapshot)
     })
     this.room.onError((_code, message) => events.onError(message || 'Verbindung verloren'))
     this.room.onLeave(() => events.onError('Verbindung getrennt'))
   }
 
-  /** Wird vom Game-Loop mit 30 Hz aufgerufen; seq steigt pro Input. */
-  sendInput(dx: number, dy: number, aim: number, fire: boolean): void {
-    if (!this.room) return
-    this.room.send('input', { kind: 'input', seq: this.seq++, dx, dy, aim, fire })
+  /** Wird vom Game-Loop mit 30 Hz aufgerufen; seq steigt pro Input. Gibt seq zurueck. */
+  sendInput(dx: number, dy: number, aim: number, fire: boolean): number {
+    if (!this.room) return -1
+    const seq = this.seq++
+    this.room.send('input', { kind: 'input', seq, dx, dy, aim, fire })
+    return seq
   }
 
   leave(): void {

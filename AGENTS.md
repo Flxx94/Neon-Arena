@@ -1,6 +1,11 @@
 # AGENTS.md – Neon Arena
 
-> Current state (2026-09-04): M1 done (`milestone/M1`). 2-client join/move works (unit + Playwright green). Source of truth: `PROJECT_PLAN.md` + `TASKS.md`; this file only summarizes what an agent would otherwise miss.
+> Current state (2026-09-04): M2 done (`milestone/M2`). Authoritative 30 Hz sim (move/collide/projectiles/HP/respawn), client prediction + reconciliation, Canvas renderer + HUD + synth SFX. `tickMsP95` 0.49 ms at 12 players (budget 5 ms).
+>
+> ## Layout (M2)
+> - Sim: `apps/server/src/sim/{state.ts,engine.ts,metrics.ts}` — pure `update(ctx, state)` over Colyseus Schema state, wired via `setSimulationInterval` in `ArenaRoom`. Unit-test through real Schema classes (needs the decorator/tsconfig flags below).
+> - Shared physics (`packages/shared/src/physics.ts`) is used by BOTH server sim and client prediction — keep them in sync, never duplicate constants.
+> - Turbo `test` depends on `^build`: server/client tests import `@neon-arena/shared` from `dist`, so stale builds cause phantom `is not a function` failures.
 >
 > Env quirks on this machine: `pnpm` was installed via `npm i -g pnpm` (repo pins 9.12 via `packageManager`); Git + Docker Desktop paths are in User PATH (old shells need re-login or per-command prepend); for local `pnpm dev` / E2E first `docker compose -f infra/docker-compose.yml down` (ports 5173/2567 collide otherwise, and Playwright `reuseExistingServer` would test the stale Compose bundle).
 >

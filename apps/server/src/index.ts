@@ -5,6 +5,7 @@ import { WebSocketTransport } from '@colyseus/ws-transport'
 import express, { type Express } from 'express'
 import helmet from 'helmet'
 import { ArenaRoom } from './rooms/ArenaRoom.js'
+import { tickMsP95 } from './sim/metrics.js'
 
 const PORT = Number(process.env.PORT ?? 2567)
 const APP_VERSION = process.env.APP_VERSION ?? '0.1.0'
@@ -25,7 +26,7 @@ export function createApp(): Express {
   })
 
   app.get('/metrics', (_req, res) => {
-    res.json({ ...metrics })
+    res.json({ ...metrics, tickMsP95: tickMsP95() })
   })
 
   return app

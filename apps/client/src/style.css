@@ -55,3 +55,56 @@ body {
   color: #f66;
   min-height: 1.5em;
 }
+#hud {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 12px;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  font-family: monospace;
+  pointer-events: none;
+}
+#hud[hidden] {
+  display: none;
+}
+#hpbar {
+  width: 220px;
+  height: 14px;
+  border: 1px solid #0ff;
+  background: #0a0a20;
+}
+#hpfill {
+  height: 100%;
+  width: 100%;
+  background: #0f0;
+}
+#timer {
+  color: #0ff;
+  font-size: 16px;
+}
+#mute {
+  pointer-events: auto;
+  font-size: 16px;
+  background: #0a0a20;
+  color: #0ff;
+  border: 1px solid #0ff;
+  cursor: pointer;
+}
+#dead {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f66;
+  font: 28px monospace;
+  text-shadow: 0 0 18px #f66;
+  background: rgba(5, 5, 16, 0.5);
+  pointer-events: none;
+}
+#dead[hidden] {
+  display: none;
+}

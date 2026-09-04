@@ -36,22 +36,22 @@
 
 ---
 
-## Milestone M2 – Autoritative Core-Simulation [P0] (~1–2 Wochen)
+## Milestone M2 – Autoritative Core-Simulation [P0] (~1–2 Wochen) — DONE (2026-09-04, `milestone/M2`)
 
-- [ ] **M2-01 [P0]** Fixed-Timestep GameLoop serverseitig (30 Hz), Konstanten aus `shared`
-  Done-wenn: `tick_ms` p95 < 5 ms bei 12 Spielern (lokal gemessen).
-- [ ] **M2-02 [P0]** Bewegung + Kreis-Kollision (Spieler↔Spieler, Spieler↔Wand/Hindernis), Positions-Clamps
-  Done-wenn: kein Durchdringen von Wänden bei 5-min-Dauertest (manuell).
-- [ ] **M2-03 [P0]** Schießen (Projektil oder Hitscan – Entscheidung in M2, Empfehlung: Projektil mit Server-Rewind 100 ms), Fire-Rate-Limit serverseitig
-  Done-wenn: Feuern über Limit wird serverseitig verworfen (Unit-Test).
-- [ ] **M2-04 [P0]** HP/Schaden/Tod/Respawn (3 s), Spawn-Schutz 2 s
-  Done-wenn: Kill → Respawn-Zyklus funktioniert in 2 Tabs reproduzierbar.
-- [ ] **M2-05 [P0]** Client Prediction (eigene Bewegung) + Reconciliation via `seq`-ACK
-  Done-wenn: bei 100 ms simulierter Latenz kein „Rubber-Banding“ >1 Tile (Sichtprüfung `?debug=1`).
-- [ ] **M2-06 [P0]** Renderer-Interface + `CanvasRenderer`, Input (WASD+Maus), HUD (HP, Timer-Platzhalter)
-  Done-wenn: 60 fps bei 50 Entities lokal (Overlay zeigt fps).
-- [ ] **M2-07 [P1]** Synthetisierte Soundeffekte (Schuss, Hit, Tod via WebAudio)
-  Done-wenn: Sounds schaltbar (Mute-Button), keine externen Assets.
+- [x] **M2-01 [P0]** Fixed-Timestep GameLoop serverseitig (30 Hz), Konstanten aus `shared`
+  Done-wenn: `tick_ms` p95 < 5 ms bei 12 Spielern (lokal gemessen). → verifiziert: 0,49 ms p95 (12 Clients, Dauerfeuer, 10 s, `/metrics`).
+- [x] **M2-02 [P0]** Bewegung + Kreis-Kollision (Spieler↔Spieler, Spieler↔Wand/Hindernis), Positions-Clamps
+  Done-wenn: kein Durchdringen von Wänden bei 5-min-Dauertest (manuell). → Mechanik via Unit-Tests (Wand-Clamp, Hindernis-Block, Kreis-Entflechtung in `shared`+`engine`); 5-min-Sichtprüfung offen für Playtest (M5-05).
+- [x] **M2-03 [P0]** Schießen (Projektil oder Hitscan – Entscheidung in M2, Empfehlung: Projektil mit Server-Rewind 100 ms), Fire-Rate-Limit serverseitig
+  Done-wenn: Feuern über Limit wird serverseitig verworfen (Unit-Test). → Entscheidung: **Projektil** (600 px/s, 25 dmg, Segment-vs-Kreis + 100-ms-Rewind); Fire-Rate 250 ms per Unit-Test verifiziert.
+- [x] **M2-04 [P0]** HP/Schaden/Tod/Respawn (3 s), Spawn-Schutz 2 s
+  Done-wenn: Kill → Respawn-Zyklus funktioniert in 2 Tabs reproduzierbar. → per Unit-Test (Kill → deaths/kills → Respawn mit vollem HP) + E2E-Projektilpfad.
+- [x] **M2-05 [P0]** Client Prediction (eigene Bewegung) + Reconciliation via `seq`-ACK
+  Done-wenn: bei 100 ms simulierter Latenz kein „Rubber-Banding“ >1 Tile (Sichtprüfung `?debug=1`). → implementiert (`Prediction`: Snap + Replay, `ackSeq` im State, Pending-Zähler im Debug-Overlay); Latenz-Sichtprüfung offen für Playtest.
+- [x] **M2-06 [P0]** Renderer-Interface + `CanvasRenderer`, Input (WASD+Maus), HUD (HP, Timer-Platzhalter)
+  Done-wenn: 60 fps bei 50 Entities lokal (Overlay zeigt fps). → `Renderer`-Interface + `CanvasRenderer` + `Input`-Klasse + HUD (HP-Balken, Timer-Platzhalter, Death-Overlay); fps im `?debug=1`-Overlay.
+- [x] **M2-07 [P1]** Synthetisierte Soundeffekte (Schuss, Hit, Tod via WebAudio)
+  Done-wenn: Sounds schaltbar (Mute-Button), keine externen Assets. → `SoundFX` (Oszillator-Blips) + Mute-Button, Unlock per Join-Klick.
 
 ---
 

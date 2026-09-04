@@ -18,4 +18,27 @@ export const MAX_INPUT_PER_SECOND = 30
 export const INTERPOLATION_BUFFER_MS = 100
 export const SERVER_REWIND_MS = 100
 
+// --- Combat (M2) ---
+export const FIRE_INTERVAL_MS = 250
+export const PROJECTILE_SPEED = 600
+export const PROJECTILE_RADIUS = 4
+export const PROJECTILE_DAMAGE = 25
+export const PROJECTILE_TTL_MS = 1500
+export const PLAYER_HP = 100
+/** Rewind in Ticks bei 30 Hz (100 ms). */
+export const REWIND_TICKS = 3
+
+// --- Arena-Hindernisse (M2): zwei symmetrische Bloecke, Mitte offen ---
+export interface ObstacleRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export const OBSTACLES: ObstacleRect[] = [
+  { x: 400, y: 300, w: 120, h: 300 },
+  { x: 1080, y: 300, w: 120, h: 300 },
+]
+
 export { PROTOCOL_V }
