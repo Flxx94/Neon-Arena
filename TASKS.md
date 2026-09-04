@@ -13,7 +13,7 @@
 - [x] **M0-02 [P0]** TypeScript strict, ESLint, Prettier, `.env.example` einrichten
   Done-wenn: `pnpm check` (lint + typecheck) läuft und ist grün. → verifiziert.
 - [x] **M0-03 [P0]** Docker Compose (`client`, `server`, `postgres`, `redis`) + Dockerfiles
-  Done-wenn: `docker-compose up` → Client :5173, Server :2567, DBs erreichbar. → Dateien angelegt, `docker` auf diesem Rechner nicht verfügbar, Verify offen.
+  Done-wenn: `docker-compose up` → Client :5173, Server :2567, DBs erreichbar. → verifiziert (alle 4 Container Up, Client :5173 → 200, Server /health → 200).
 - [x] **M0-04 [P0]** CI-Skelett (GitHub Actions: install → lint → typecheck → test → build)
   Done-wenn: Push auf Branch lässt CI grün durchlaufen. → `.github/workflows/ci.yml` angelegt, lokal alle Schritte grün; Push ausstehend (kein Remote).
 - [x] **M0-05 [P0]** Server `/health` (up, version) und `/metrics`-Stub (rooms, players, tick_ms)

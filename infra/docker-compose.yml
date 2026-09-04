@@ -4,7 +4,7 @@ services:
       context: ..
       dockerfile: infra/Dockerfile.client
     ports:
-      - "5173:5173"
+      - "5173:80"
     environment:
       VITE_SERVER_URL: http://localhost:2567
     depends_on:
