@@ -1,0 +1,17 @@
+FROM node:22-alpine AS build
+RUN corepack enable
+WORKDIR /app
+COPY package.json pnpm-workspace.yaml turbo.json tsconfig.base.json ./
+COPY packages/shared ./packages/shared
+COPY apps/server ./apps/server
+RUN pnpm install --frozen-lockfile=false && pnpm --filter @neon-arena/server build
+
+FROM node:22-alpine
+WORKDIR /app
+COPY --from=build /app/apps/server/dist ./dist
+COPY --from=build /app/apps/server/package.json ./
+COPY --from=build /app/packages/shared/dist ../shared/dist
+RUN npm install --omit=dev express@^4 cors@^2 helmet@^8
+ENV PORT=2567
+EXPOSE 2567
+CMD ["node", "dist/index.js"]

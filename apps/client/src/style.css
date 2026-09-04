@@ -1,0 +1,23 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #050510;
+  overflow: hidden;
+}
+#game {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+#debug {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  font: 12px/1.5 monospace;
+  color: #0ff;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 6px 8px;
+  border: 1px solid #0ff3;
+  pointer-events: none;
+}

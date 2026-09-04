@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.turbo/
+*.local
+.env
+coverage/
+playwright-report/
+test-results/
