@@ -4,7 +4,7 @@ WORKDIR /app
 COPY package.json pnpm-workspace.yaml turbo.json tsconfig.base.json ./
 COPY packages/shared ./packages/shared
 COPY apps/server ./apps/server
-RUN pnpm install --frozen-lockfile=false && pnpm --filter @neon-arena/server exec prisma generate && pnpm --filter @neon-arena/server build
+RUN pnpm install --frozen-lockfile=false && pnpm --filter @neon-arena/shared build && pnpm --filter @neon-arena/server exec prisma generate && pnpm --filter @neon-arena/server build
 
 # M0: kompletter Workspace inkl. pnpm-node_modules wird uebernommen (Symlinks bleiben erhalten).
 # TODO(M5): Runtime-Image verschlanken (pnpm deploy / prod-only install).
