@@ -49,11 +49,19 @@ export async function issueGuest(nickname: string): Promise<{ identity: GuestIde
     .setExpirationTime('24h')
     .sign(secret())
 
-  const secure = process.env.NODE_ENV === 'production'
+  const isProd = process.env.NODE_ENV === 'production'
+  // Free-Hosting (Render + Cloudflare Pages): Frontend und Backend liegen auf
+  // verschiedenen Domains (Cross-Site). Mit SameSite=Lax wuerde der Browser das
+  // na_guest-Cookie bei fetch(credentials:include) nicht mitsenden -> /me und
+  // Rejoin brechen. In Prod daher SameSite=None; Secure (Browser-Pflicht bei None).
+  // Per COOKIE_SAMESITE=lax lokal wieder auf Lax stellbar.
+  const sameSiteRaw = (process.env.COOKIE_SAMESITE ?? (isProd ? 'none' : 'lax')).toLowerCase()
+  const sameSite = sameSiteRaw === 'none' ? 'none' : 'lax'
+  const secure = isProd || sameSite === 'none'
   const cookie = serialize(GUEST_COOKIE, token, {
     httpOnly: true,
     secure,
-    sameSite: 'lax',
+    sameSite,
     maxAge: TTL_SECONDS,
     path: '/',
   })

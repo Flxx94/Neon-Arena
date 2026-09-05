@@ -1,0 +1,31 @@
+# Render Blueprint – Neon Arena Multiplayer-Server (Free-Tier, ohne DB)
+# Deploy: Render Dashboard -> New -> Blueprint -> Repo waehlen (render.yaml wird erkannt).
+# Doku: https://render.com/docs/blueprint-spec
+# HINWEIS: PORT wird von Render automatisch injiziert und darf NICHT gesetzt werden.
+services:
+  - type: web
+    name: neon-arena-server
+    runtime: docker
+    dockerfilePath: infra/Dockerfile.server
+    dockerContext: .
+    plan: free
+    region: frankfurt
+    numInstances: 1 # Free skaliert nicht; genau 1 Instance (kein Sticky-Session-Bedarf)
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Nach Pages-Deploy exakt auf die Pages-URL setzen (sonst CORS/Cookie-Fehler):
+      - key: CLIENT_URL
+        value: https://DEIN-PROJEKT.pages.dev
+      - key: JWT_SECRET
+        sync: false # in Render manuell setzen (nie committen!)
+      - key: APP_VERSION
+        value: 0.1.0
+      - key: BOTS_ENABLED
+        value: true
+      # Free-Start ohne DB: Memory-Modus (Spiel voll nutzbar, /leaderboard -> 503).
+      - key: DB_ENABLED
+        value: false
+      # DATABASE_URL / REDIS_URL bewusst NICHT setzen.
+      # COOKIE_SAMESITE leer lassen -> Prod-Default "none" (Cross-Site Pages<->Render).
