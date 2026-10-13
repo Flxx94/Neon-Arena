@@ -15,6 +15,8 @@ function player(id: string, x: number, y: number) {
     deaths: 0,
     shield: 0,
     isBot: false,
+    skin: 0,
+    aim: 0,
   }
 }
 
