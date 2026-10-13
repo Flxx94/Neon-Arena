@@ -13,8 +13,17 @@ export class Input {
       this.mouseY = e.clientY
     })
     addEventListener('mousedown', (e) => {
+      // Klicks auf UI (Buttons, Einstellungen, Formular) feuern nicht.
+      const t = e.target as Element | null
+      if (t?.closest?.('.ui, button, input, a')) return
       if (e.button === 0) this.firing = true
     })
+    // Fokusverlust (Alt-Tab, Einstellungen): nichts haengen lassen.
+    addEventListener('blur', () => {
+      this.keys.clear()
+      this.firing = false
+    })
+    addEventListener('contextmenu', (e) => e.preventDefault())
     addEventListener('mouseup', (e) => {
       if (e.button === 0) this.firing = false
     })

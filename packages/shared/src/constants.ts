@@ -28,7 +28,11 @@ export const PLAYER_HP = 100
 /** Rewind in Ticks bei 30 Hz (100 ms). */
 export const REWIND_TICKS = 3
 
-// --- Arena-Hindernisse (M2): zwei symmetrische Bloecke, Mitte offen ---
+// --- Arena-Hindernisse: Karte "Prism Plaza" (UI v3) ---
+// Punkt- und achsensymmetrisch (1600x900). Mitte (800,450) und die Schusslinien y=450 (bis
+// x=1080: Projektile fliegen 20 px/Tick, Engine-Tests verlassen sich auf ~11 freie Ticks) und
+// y=150 bleiben frei. Reihenfolge ist stabil: [0] = linke Seitenwand (Tests verlassen sich darauf).
+// Dekor (Boden, Markierungen, Lichter) lebt rein im Client (`game/map.ts`), Kollision nur hier.
 export interface ObstacleRect {
   x: number
   y: number
@@ -36,9 +40,34 @@ export interface ObstacleRect {
   h: number
 }
 
+export const MAP_NAME = 'Prism Plaza'
+
 export const OBSTACLES: ObstacleRect[] = [
-  { x: 400, y: 300, w: 120, h: 300 },
-  { x: 1080, y: 300, w: 120, h: 300 },
+  // Seitenwaende (Flankenschutz)
+  { x: 330, y: 340, w: 40, h: 220 },
+  { x: 1230, y: 340, w: 40, h: 220 },
+  // Eck-Bunker (L-Form: Querbalken + Laengsbalken je Ecke)
+  { x: 170, y: 230, w: 170, h: 36 },
+  { x: 170, y: 634, w: 170, h: 36 },
+  { x: 1260, y: 230, w: 170, h: 36 },
+  { x: 1260, y: 634, w: 170, h: 36 },
+  { x: 170, y: 230, w: 36, h: 130 },
+  { x: 170, y: 540, w: 36, h: 130 },
+  { x: 1394, y: 230, w: 36, h: 130 },
+  { x: 1394, y: 540, w: 36, h: 130 },
+  // Mittel-Pfeiler um die offene Mitte
+  { x: 450, y: 420, w: 60, h: 60 },
+  { x: 1090, y: 420, w: 60, h: 60 },
+  { x: 770, y: 240, w: 60, h: 60 },
+  { x: 770, y: 600, w: 60, h: 60 },
+  // Barrikaden oben/unten
+  { x: 640, y: 80, w: 320, h: 34 },
+  { x: 640, y: 786, w: 320, h: 34 },
+  // Kisten (diagonale Deckung)
+  { x: 520, y: 200, w: 56, h: 56 },
+  { x: 520, y: 644, w: 56, h: 56 },
+  { x: 1024, y: 200, w: 56, h: 56 },
+  { x: 1024, y: 644, w: 56, h: 56 },
 ]
 
 // --- Runden & Pickups & Bots (M3) ---

@@ -21,7 +21,10 @@ export async function ensureGuest(nickname: string): Promise<GuestIdentity> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ nickname }),
   })
-  if (!res.ok) throw new Error(res.status === 429 ? 'Zu viele Versuche – warte kurz' : 'Gast-Anmeldung fehlgeschlagen')
+  if (!res.ok)
+    throw new Error(
+      res.status === 429 ? 'Zu viele Versuche – warte kurz' : 'Gast-Anmeldung fehlgeschlagen',
+    )
   return (await res.json()) as GuestIdentity
 }
 
@@ -45,6 +48,8 @@ export interface ClientPlayer {
   deaths: number
   shield: number
   isBot: boolean
+  skin: number
+  aim: number
 }
 
 export interface ClientProjectile {
@@ -82,12 +87,13 @@ export class NetClient {
     return this.room?.sessionId ?? null
   }
 
-  async join(nickname: string, events: NetEvents): Promise<void> {
+  async join(nickname: string, skin: number, events: NetEvents): Promise<void> {
     const guest = await ensureGuest(nickname)
     this.room = await this.client.joinOrCreate('arena', {
       nickname: guest.nickname,
       protocolV: 1,
       userId: guest.userId,
+      skin,
     })
     this.room.onMessage('killfeed', (msg: { by: string; victim: string }) => {
       events.onKill(String(msg.by), String(msg.victim))
@@ -108,6 +114,8 @@ export class NetClient {
             deaths: number
             shield: number
             isBot: boolean
+            skin: number
+            aim: number
           },
         ]) => ({
           id,
@@ -122,6 +130,8 @@ export class NetClient {
           deaths: p.deaths,
           shield: p.shield,
           isBot: p.isBot,
+          skin: p.skin,
+          aim: p.aim,
         }),
       )
       const projectiles: ClientProjectile[] = [...state.projectiles.values()].map(

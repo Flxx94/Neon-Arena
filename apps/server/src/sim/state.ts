@@ -11,6 +11,10 @@ export class Player extends Schema {
   @type('number') score = 0
   @type('number') shield = 0
   @type('boolean') isBot = false
+  /** Kosmetik (UI v3): Modell + Farbe, siehe shared/skins.ts. Gameplay liest das nie. */
+  @type('uint8') skin = 0
+  /** Zielrichtung in rad (auf 0.05 gerundet): Clients zeichnen damit Blick + Waffe der Gegner. */
+  @type('float32') aim = 0
   /** Letzte vom Server angewendete Input-seq (fuer Client-Reconciliation, M2-05). */
   @type('number') ackSeq = -1
 }

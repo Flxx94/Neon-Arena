@@ -1,30 +1,178 @@
 <!doctype html>
-<html lang="de">
+<html lang="de" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#0d0822" />
+    <meta name="description" content="Neon Arena – schnelle Mehrspieler-Arena im Browser. Wähle deine Figur und schieß dich an die Spitze." />
     <title>Neon Arena</title>
+    <!-- Theme vor dem ersten Paint setzen (kein Hell/Dunkel-Flackern). Nur Kosmetik aus localStorage. -->
+    <script>
+      try {
+        var t = (JSON.parse(localStorage.getItem('neon-arena:settings') || '{}') || {}).theme
+        if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+        document.documentElement.dataset.theme = t
+      } catch (e) {}
+    </script>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true" focusable="false">
+      <defs>
+        <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.6"/><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.3 5.3l1.9 1.9M16.8 16.8l1.9 1.9M18.7 5.3l-1.9 1.9M7.2 16.8l-1.9 1.9"/></symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.6A8.4 8.4 0 0 1 9.4 4a8.4 8.4 0 1 0 10.6 10.6z"/></symbol>
+        <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9.5h3.4L12 5.5v13l-4.6-4H4z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.6 7.6 0 0 1 0 11"/></symbol>
+        <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9.5h3.4L12 5.5v13l-4.6-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></symbol>
+        <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8l1.6 2.4 2.8-.6.9 2.7 2.7.9-.6 2.8L21.8 12l-2.4 1.6.6 2.8-2.7.9-.9 2.7-2.8-.6L12 21.2l-1.6-2.4-2.8.6-.9-2.7-2.7-.9.6-2.8L2.2 12l2.4-1.6-.6-2.8 2.7-.9.9-2.7 2.8.6z"/></symbol>
+        <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20.5S3.5 15 3.5 8.9A4.6 4.6 0 0 1 12 6.6a4.6 4.6 0 0 1 8.5 2.3C20.5 15 12 20.5 12 20.5z"/></symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 2.6v5.6c0 4.5-3 8-7 9.8-4-1.8-7-5.3-7-9.8V5.6z"/></symbol>
+        <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v1.5A3.5 3.5 0 0 0 7.5 11M17 6h3v1.5a3.5 3.5 0 0 1-3.5 3.5M12 14v3.5M8.5 20h7M10 17.5h4"/></symbol>
+        <symbol id="i-left" viewBox="0 0 24 24"><path d="M14.5 5l-7 7 7 7"/></symbol>
+        <symbol id="i-right" viewBox="0 0 24 24"><path d="M9.5 5l7 7-7 7"/></symbol>
+        <symbol id="i-dice" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><circle cx="9" cy="9" r="1.2"/><circle cx="15" cy="15" r="1.2"/><circle cx="12" cy="12" r="1.2"/></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+      </defs>
+    </svg>
+
     <canvas id="game"></canvas>
-    <div id="scoreboard" hidden></div>
-    <div id="killfeed"></div>
-    <div id="round" hidden></div>
+
+    <!-- HUD (nur im Spiel) -->
+    <div id="timerbox" class="chip ui-top" hidden>
+      <span id="timer">3:00</span>
+      <small>RUNDE</small>
+    </div>
+    <div id="killfeed" aria-live="polite"></div>
+    <div id="scoreboard" class="card" hidden aria-label="Rangliste"></div>
+    <div id="round" hidden aria-live="assertive"></div>
+    <div id="toast" aria-live="polite"></div>
+
     <div id="hud" hidden>
-      <div id="hpbar"><div id="hpfill"></div></div>
-      <div id="timer">3:00</div>
-      <button id="mute" title="Sound an/aus">🔊</button>
+      <div id="vitals" class="card">
+        <canvas id="hud-avatar" width="112" height="112" aria-hidden="true"></canvas>
+        <div class="bars">
+          <div class="bar-row" id="hprow">
+            <svg class="bar-icon heart" aria-hidden="true"><use href="#i-heart" /></svg>
+            <div id="hpbar"><div id="hptrail"></div><div id="hpfill"></div></div>
+            <span id="hpnum">100</span>
+          </div>
+          <div class="bar-row" id="shieldrow">
+            <svg class="bar-icon shield" aria-hidden="true"><use href="#i-shield" /></svg>
+            <div id="shieldbar"><div id="shieldfill"></div></div>
+            <span id="shieldnum">0</span>
+          </div>
+        </div>
+      </div>
+      <div id="hint" class="chip">
+        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> bewegen <i>·</i> <kbd>Maus</kbd> zielen <i>·</i> <kbd>Klick</kbd> schießen
+      </div>
     </div>
-    <div id="dead" hidden>Respawn …</div>
+
+    <div id="dead" hidden>
+      <div class="dead-card">
+        <h2>Ausgeschaltet!</h2>
+        <p id="dead-by"></p>
+        <div id="dead-count">3</div>
+        <p class="dead-sub">Respawn …</p>
+      </div>
+    </div>
+
+    <!-- Immer sichtbare Werkzeuge -->
+    <div id="tools" class="ui">
+      <button id="theme-toggle" class="icon-btn" type="button" title="Hell/Dunkel umschalten" aria-label="Hell oder Dunkel umschalten">
+        <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+        <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+      </button>
+      <button id="mute" class="icon-btn" type="button" title="Sound an/aus" aria-label="Sound an oder aus">
+        <svg class="i-on" aria-hidden="true"><use href="#i-sound" /></svg>
+        <svg class="i-off" aria-hidden="true"><use href="#i-mute" /></svg>
+      </button>
+      <button id="settings-btn" class="icon-btn" type="button" title="Einstellungen (Esc)" aria-label="Einstellungen öffnen">
+        <svg aria-hidden="true"><use href="#i-gear" /></svg>
+      </button>
+    </div>
+
+    <!-- Startscreen -->
     <div id="join">
-      <h1>NEON ARENA</h1>
-      <input id="nickname" maxlength="16" placeholder="Nickname" autocomplete="off" />
-      <button id="play">Spielen</button>
-      <p id="join-error"></p>
-      <button id="reload" hidden>Neu laden</button>
-      <a id="toplink" href="/leaderboard.html" target="_blank">🏆 Bestenliste</a>
+      <main class="join-wrap">
+        <h1 class="logo" aria-label="Neon Arena">
+          <span class="logo-line" id="logo-a" aria-hidden="true"></span>
+          <span class="logo-line" id="logo-b" aria-hidden="true"></span>
+        </h1>
+        <p class="tagline">Schnelle Arena-Duelle · bis zu 12 Spieler · 3 Minuten pro Runde</p>
+
+        <form id="join-card" class="card ui" autocomplete="off">
+          <div class="picker">
+            <button id="model-prev" class="icon-btn small" type="button" aria-label="Vorherige Figur">
+              <svg aria-hidden="true"><use href="#i-left" /></svg>
+            </button>
+            <div class="preview">
+              <canvas id="preview" width="260" height="260" aria-hidden="true"></canvas>
+              <div id="model-name" class="model-name">Blobby</div>
+            </div>
+            <button id="model-next" class="icon-btn small" type="button" aria-label="Nächste Figur">
+              <svg aria-hidden="true"><use href="#i-right" /></svg>
+            </button>
+          </div>
+          <div id="swatches" class="swatches" role="radiogroup" aria-label="Farbe"></div>
+          <button id="randomize" class="link-btn" type="button">
+            <svg aria-hidden="true"><use href="#i-dice" /></svg> Zufälliger Look
+          </button>
+
+          <label class="field">
+            <span>Dein Name</span>
+            <input id="nickname" maxlength="16" placeholder="z. B. NeonNinja" autocomplete="off" spellcheck="false" />
+          </label>
+          <p id="join-error" role="alert"></p>
+          <button id="play" class="btn primary" type="submit">Spielen</button>
+          <button id="reload" class="btn" type="button" hidden>Neu laden</button>
+          <a id="toplink" href="/leaderboard.html" target="_blank" rel="noopener">
+            <svg aria-hidden="true"><use href="#i-trophy" /></svg> Bestenliste
+          </a>
+        </form>
+      </main>
     </div>
+
+    <!-- Einstellungen -->
+    <div id="settings" class="modal" hidden>
+      <div class="modal-card card ui" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <header>
+          <h2 id="settings-title">Einstellungen</h2>
+          <button id="settings-close" class="icon-btn small" type="button" aria-label="Schließen">
+            <svg aria-hidden="true"><use href="#i-close" /></svg>
+          </button>
+        </header>
+        <div class="row">
+          <span class="label">Design</span>
+          <div class="seg" id="seg-theme" role="radiogroup" aria-label="Design">
+            <button type="button" role="radio" data-theme-pref="auto">Auto</button>
+            <button type="button" role="radio" data-theme-pref="light">Hell</button>
+            <button type="button" role="radio" data-theme-pref="dark">Dunkel</button>
+          </div>
+        </div>
+        <div class="row">
+          <label class="label" for="vol-sfx">Effekte</label>
+          <input id="vol-sfx" type="range" min="0" max="100" step="1" />
+        </div>
+        <div class="row">
+          <label class="label" for="vol-music">Musik</label>
+          <input id="vol-music" type="range" min="0" max="100" step="1" />
+        </div>
+        <div class="row">
+          <span class="label">Bildschirmwackeln</span>
+          <button id="opt-shake" class="switch" type="button" role="switch" aria-checked="true"><i></i></button>
+        </div>
+        <div class="row">
+          <span class="label">Partikel</span>
+          <div class="seg" id="seg-particles" role="radiogroup" aria-label="Partikelqualität">
+            <button type="button" role="radio" data-particles="low">Wenig</button>
+            <button type="button" role="radio" data-particles="high">Viel</button>
+          </div>
+        </div>
+        <p class="modal-note">Einstellungen werden nur in diesem Browser gespeichert.</p>
+      </div>
+    </div>
+
     <div id="debug" hidden></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

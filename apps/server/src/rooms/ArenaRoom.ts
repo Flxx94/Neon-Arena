@@ -110,6 +110,7 @@ export class ArenaRoom extends Room<ArenaState> {
     const player = new Player()
     player.nickname = parsed.data.nickname
     player.hp = PLAYER_HP
+    player.skin = parsed.data.skin ?? 0
     const spawn = findSpawn([...this.state.players.values()])
     player.x = spawn.x
     player.y = spawn.y
@@ -139,11 +140,23 @@ export class ArenaRoom extends Room<ArenaState> {
     if (!db) return
     let winnerId: string | null = null
     let best = -1
-    const rows: { userId: string; nickname: string; kills: number; deaths: number; score: number }[] = []
+    const rows: {
+      userId: string
+      nickname: string
+      kills: number
+      deaths: number
+      score: number
+    }[] = []
     for (const [sessionId, player] of this.state.players) {
       const userId = this.userIds.get(sessionId)
       if (!userId || player.isBot) continue
-      rows.push({ userId, nickname: player.nickname, kills: player.kills, deaths: player.deaths, score: player.score })
+      rows.push({
+        userId,
+        nickname: player.nickname,
+        kills: player.kills,
+        deaths: player.deaths,
+        score: player.score,
+      })
       if (player.score > best) {
         best = player.score
         winnerId = userId
