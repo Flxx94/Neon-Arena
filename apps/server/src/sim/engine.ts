@@ -26,6 +26,7 @@ import {
   ROUND_END_SECONDS,
   ROUND_SECONDS,
   SHIELD_MAX,
+  SKIN_COUNT,
   SPAWN_PROTECTION_SECONDS,
   SURVIVAL_BONUS,
   TICK_RATE,
@@ -91,7 +92,11 @@ export function createContext(botsEnabled = true): SimContext {
   }
 }
 
-export function initPlayer(ctx: SimContext, sessionId: string, pos: { x: number; y: number }): void {
+export function initPlayer(
+  ctx: SimContext,
+  sessionId: string,
+  pos: { x: number; y: number },
+): void {
   ctx.histories.set(sessionId, [{ ...pos }])
   ctx.timers.set(sessionId, {
     respawnAt: -1,
@@ -128,7 +133,9 @@ export function findSpawn(others: Player[]): { x: number; y: number } {
 }
 
 function insideObstacle(x: number, y: number, margin: number): boolean {
-  return OBSTACLES.some((o) => x > o.x - margin && x < o.x + o.w + margin && y > o.y - margin && y < o.y + o.h + margin)
+  return OBSTACLES.some(
+    (o) => x > o.x - margin && x < o.x + o.w + margin && y > o.y - margin && y < o.y + o.h + margin,
+  )
 }
 
 /** Validierten Input ablegen; wird im naechsten Tick angewendet (inkl. ackSeq). */
@@ -142,6 +149,12 @@ export function applyInput(
   if (!player) return
   ctx.inputs.set(sessionId, input)
   player.ackSeq = input.seq
+  player.aim = quantizeAim(input.aim)
+}
+
+/** Aim fuer den State gerundet (0.05 rad ~ 3 Grad): weniger Delta-Traffic, optisch identisch. */
+function quantizeAim(aim: number): number {
+  return Math.round(aim * 20) / 20
 }
 
 /** Ein 30-Hz-Tick: Runde, Respawns, Bewegung, Kollision, Feuer, Projektile, Pickups, Bots. */
@@ -343,9 +356,18 @@ function checkHits(
     const timers = ctx.timers.get(id)
     if (timers && ctx.tick < timers.protectedUntil) continue
     const hist = ctx.histories.get(id)
-    const rewound = hist && hist.length > REWIND_TICKS ? hist[hist.length - 1 - REWIND_TICKS]! : player
+    const rewound =
+      hist && hist.length > REWIND_TICKS ? hist[hist.length - 1 - REWIND_TICKS]! : player
     if (
-      segmentHitsCircle(prevX, prevY, proj.x, proj.y, rewound.x, rewound.y, PLAYER_RADIUS + PROJECTILE_RADIUS)
+      segmentHitsCircle(
+        prevX,
+        prevY,
+        proj.x,
+        proj.y,
+        rewound.x,
+        rewound.y,
+        PLAYER_RADIUS + PROJECTILE_RADIUS,
+      )
     ) {
       damage(ctx, state, id, proj.owner)
       return true
@@ -406,7 +428,8 @@ function updatePickups(ctx: SimContext, state: ArenaState): void {
     let taken = false
     for (const player of state.players.values()) {
       if (!player.alive) continue
-      if (Math.hypot(player.x - pickup.x, player.y - pickup.y) > PLAYER_RADIUS + PICKUP_RADIUS) continue
+      if (Math.hypot(player.x - pickup.x, player.y - pickup.y) > PLAYER_RADIUS + PICKUP_RADIUS)
+        continue
       if (pickup.kind === 'hp') {
         if (player.hp >= PLAYER_HP) continue
         player.hp = Math.min(PLAYER_HP, player.hp + PICKUP_HP_AMOUNT)
@@ -467,6 +490,7 @@ function maintainBots(ctx: SimContext, state: ArenaState): void {
     const bot = new Player()
     bot.nickname = `Bot-${ctx.nextBotNum++}`
     bot.isBot = true
+    bot.skin = Math.floor(Math.random() * SKIN_COUNT)
     const alive = [...state.players.values()].filter((p) => p.alive)
     const spawn = findSpawn(alive)
     bot.x = spawn.x
@@ -497,6 +521,7 @@ function thinkBots(ctx: SimContext, state: ArenaState): void {
       continue
     }
     const aim = Math.atan2(nearest.y - bot.y, nearest.x - bot.x)
+    const visible = lineOfSight(bot, nearest)
     let mx = 0
     let my = 0
     if (nearestDist > BOT_PREFERRED_RANGE + 40) {
@@ -506,10 +531,30 @@ function thinkBots(ctx: SimContext, state: ArenaState): void {
       mx = -Math.cos(aim) * 0.8
       my = -Math.sin(aim) * 0.8
     }
-    const fire = nearestDist < BOT_FIRE_RANGE && lineOfSight(bot, nearest)
+    // UI v3 (mehr Hindernisse): quer zur Blickrichtung ausweichen. Ohne Sichtlinie kraeftig
+    // (laeuft um Deckung herum statt an der Wand zu kleben), mit Sichtlinie leicht (Strafen).
+    // Die Seite wechselt alle ~3 s, damit Bots nicht ewig denselben Pfeiler umkreisen.
+    const side = botSide(id, ctx.tick)
+    const strafe = visible ? 0.35 : 0.9
+    mx += -Math.sin(aim) * side * strafe
+    my += Math.cos(aim) * side * strafe
+    const mag = Math.hypot(mx, my)
+    if (mag > 1) {
+      mx /= mag
+      my /= mag
+    }
+    const fire = nearestDist < BOT_FIRE_RANGE && visible
     ctx.inputs.set(id, { kind: 'input', seq: ctx.tick, dx: mx, dy: my, aim, fire })
     bot.ackSeq = ctx.tick
+    bot.aim = quantizeAim(aim)
   }
+}
+
+/** Deterministisch +1/-1 pro Bot, wechselt alle 90 Ticks (3 s). */
+function botSide(id: string, tick: number): 1 | -1 {
+  let hash = 0
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0
+  return (Math.abs(hash) + Math.floor(tick / 90)) % 2 === 0 ? 1 : -1
 }
 
 function lineOfSight(a: { x: number; y: number }, b: { x: number; y: number }): boolean {

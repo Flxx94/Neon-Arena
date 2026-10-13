@@ -1,4 +1,10 @@
-import { PLAYER_RADIUS, PLAYER_SPEED, TICK_RATE, resolveArena, resolveRect } from '@neon-arena/shared'
+import {
+  PLAYER_RADIUS,
+  PLAYER_SPEED,
+  TICK_RATE,
+  resolveArena,
+  resolveRect,
+} from '@neon-arena/shared'
 import { OBSTACLES } from '@neon-arena/shared'
 
 export interface PendingInput {

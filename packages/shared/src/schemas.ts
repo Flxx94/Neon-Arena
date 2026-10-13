@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SKIN_COUNT } from './skins.js'
 
 /** Nickname-Regel (M5-02): <=16 Zeichen, alphanumerisch + _-. */
 export const nicknameSchema = z
@@ -13,6 +14,13 @@ export const joinSchema = z.object({
   protocolV: z.number().int(),
   // M4-02: Gast-Identitaet (Session muss serverseitig existieren).
   userId: z.string().uuid().optional(),
+  // UI v3: kosmetischer Skin (Modell + Farbe), rein optional; Bereich wird hart geprueft.
+  skin: z
+    .number()
+    .int()
+    .min(0)
+    .max(SKIN_COUNT - 1)
+    .optional(),
 })
 
 /** Jede Client-Message laeuft durch dieses Schema; unbekannte Felder werden gestrippt (.strict fehlt absichtlich nicht -> strip). */

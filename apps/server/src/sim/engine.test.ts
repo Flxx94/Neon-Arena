@@ -5,9 +5,17 @@ import {
   PLAYER_RADIUS,
   PROJECTILE_DAMAGE,
   RESPAWN_SECONDS,
+  SKIN_COUNT,
   TICK_RATE,
 } from '@neon-arena/shared'
-import { applyInput, createContext, drainEvents, initPlayer, removePlayer, update } from './engine.js'
+import {
+  applyInput,
+  createContext,
+  drainEvents,
+  initPlayer,
+  removePlayer,
+  update,
+} from './engine.js'
 import { ArenaState, Pickup, Player } from './state.js'
 
 function addPlayer(state: ArenaState, id: string, x: number, y: number): Player {
@@ -214,5 +222,61 @@ describe('engine runden/pickups/bots (M3)', () => {
     ctx.botIds.add('bot-9')
     for (let i = 0; i < 40; i++) update(ctx, state)
     expect(state.projectiles.length).toBeGreaterThan(0)
+  })
+})
+
+describe('engine UI v3 (Skins, Aim, Bot-Ausweichen)', () => {
+  it('Aim landet gerundet im State (Gegner-Blickrichtung fuer Clients)', () => {
+    const ctx = createContext(false)
+    const state = new ArenaState()
+    const p = addPlayer(state, 'a', 800, 450)
+    initPlayer(ctx, 'a', { x: 800, y: 450 })
+    applyInput(ctx, state, 'a', input(0, 0, 0, 1.2345))
+    expect(p.aim).toBeCloseTo(1.25, 5)
+    applyInput(ctx, state, 'a', input(1, 0, 0, -3))
+    expect(p.aim).toBeCloseTo(-3, 5)
+  })
+
+  it('Bots bekommen einen gueltigen Skin und zielen auf ihr Ziel', () => {
+    const ctx = createContext(true)
+    const state = new ArenaState()
+    addPlayer(state, 'human', 200, 450)
+    initPlayer(ctx, 'human', { x: 200, y: 450 })
+    update(ctx, state)
+    expect(ctx.botIds.size).toBe(3)
+    for (const id of ctx.botIds) {
+      const bot = state.players.get(id)!
+      expect(Number.isInteger(bot.skin)).toBe(true)
+      expect(bot.skin).toBeGreaterThanOrEqual(0)
+      expect(bot.skin).toBeLessThan(SKIN_COUNT)
+    }
+  })
+
+  it('Bot ohne Sichtlinie weicht quer aus statt an der Wand zu kleben', () => {
+    const ctx = createContext(true)
+    const state = new ArenaState()
+    // Linke Seitenwand (OBSTACLES[0]) liegt genau zwischen Bot und Ziel, beide auf Mittellinie.
+    const o = OBSTACLES[0]!
+    const y = o.y + o.h / 2
+    addPlayer(state, 'human', o.x + o.w + 30, y)
+    initPlayer(ctx, 'human', { x: o.x + o.w + 30, y })
+    const bot = addPlayer(state, 'bot-9', o.x - 30, y)
+    bot.isBot = true
+    initPlayer(ctx, 'bot-9', { x: bot.x, y })
+    ctx.botIds.add('bot-9')
+    // Aufgefuellte Bots deterministisch in die Mitte, weit weg vom Ziel (Math.random fix).
+    const realRandom = Math.random
+    Math.random = () => 0.5
+    try {
+      // Bots denken alle 10 Ticks: nach 10 Updates liegt der erste Input vor.
+      for (let i = 0; i < 10; i++) update(ctx, state)
+    } finally {
+      Math.random = realRandom
+    }
+    const botInput = ctx.inputs.get('bot-9')!
+    // Ohne Ausweichen waere dy == 0 (Ziel auf gleicher Hoehe).
+    expect(Math.abs(botInput.dy)).toBeGreaterThan(0.1)
+    expect(Math.hypot(botInput.dx, botInput.dy)).toBeLessThanOrEqual(1.0001)
+    expect(botInput.fire).toBe(false)
   })
 })

@@ -1,68 +1,191 @@
 <!doctype html>
-<html lang="de">
+<html lang="de" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <title>Neon Arena – Bestenliste</title>
+    <script>
+      // Gleiche Theme-Wahl wie das Spiel (nur Kosmetik aus localStorage), vor dem ersten Paint.
+      try {
+        var t = (JSON.parse(localStorage.getItem('neon-arena:settings') || '{}') || {}).theme
+        if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+        document.documentElement.dataset.theme = t
+      } catch (e) {}
+    </script>
     <style>
-      body { background: #050510; color: #0ff; font-family: monospace; padding: 24px; }
-      h1 { text-shadow: 0 0 18px #0ff; }
-      table { border-collapse: collapse; }
-      td, th { border: 1px solid #0ff3; padding: 4px 12px; text-align: right; }
-      td:first-child, th:first-child, td:nth-child(2), th:nth-child(2) { text-align: left; }
-      a { color: #0ff; }
-      #history { margin-top: 24px; }
+      :root {
+        --font: ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Nunito", "Varela Round",
+          "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+        --pop: cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      :root[data-theme="dark"] {
+        --bg: #0d0822; --panel: #1b1443; --panel-2: #251a5c; --panel-3: #31247a;
+        --ink: #05030f; --text: #f6f2ff; --muted: #a99fd8; --accent: #ff5fa2; --accent-2: #26d0ff;
+        --bad: #ff4b5c; --gold: #ffd23f; --silver: #cfd6ff; --bronze: #ff9a52;
+      }
+      :root[data-theme="light"] {
+        --bg: #ffe9c7; --panel: #fffaf0; --panel-2: #fff0d4; --panel-3: #ffe2b0;
+        --ink: #1b1340; --text: #1b1340; --muted: #7a6a8f; --accent: #ff5fa2; --accent-2: #1aa9e0;
+        --bad: #ec2f45; --gold: #ffc928; --silver: #c9cfe6; --bronze: #ff9a52;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; padding: 24px 16px 56px;
+        font: 700 16px/1.4 var(--font); color: var(--text); background: var(--bg);
+        background-image: radial-gradient(var(--panel-3) 1.5px, transparent 1.5px);
+        background-size: 28px 28px;
+      }
+      main { max-width: 760px; margin: 0 auto; }
+      a { color: inherit; }
+      :focus-visible { outline: 3px solid var(--accent-2); outline-offset: 3px; }
+      .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
+      h1 {
+        margin: 0; font-size: clamp(30px, 6vw, 46px); line-height: 1; text-transform: uppercase;
+        color: var(--accent); -webkit-text-stroke: 0.1em var(--ink); paint-order: stroke fill;
+        text-shadow: 0 0.07em 0 var(--ink); transform: rotate(-1.5deg);
+      }
+      .btn {
+        display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px;
+        font: 800 15px/1 var(--font); text-decoration: none; color: var(--text); background: var(--panel);
+        border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 4px 0 var(--ink);
+        cursor: pointer; transition: transform 120ms var(--pop), box-shadow 120ms;
+      }
+      .btn:hover { transform: translateY(-2px) rotate(-1deg); box-shadow: 0 6px 0 var(--ink); }
+      .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+      .card {
+        background: var(--panel); border: 3px solid var(--ink); border-radius: 22px;
+        box-shadow: 0 6px 0 var(--ink); padding: 8px 8px 10px; overflow-x: auto;
+      }
+      .podium { display: grid; grid-template-columns: repeat(3, 1fr); align-items: end; gap: 12px; margin-bottom: 22px; }
+      .step {
+        display: grid; justify-items: center; gap: 2px; padding: 14px 8px 12px; text-align: center;
+        background: var(--panel); border: 3px solid var(--ink); border-radius: 20px; box-shadow: 0 5px 0 var(--ink);
+        animation: rise 520ms var(--pop) both;
+      }
+      .step:nth-child(1) { order: 2; padding-top: 26px; background: linear-gradient(180deg, var(--gold), var(--panel) 70%); animation-delay: 0ms; }
+      .step:nth-child(2) { order: 1; background: linear-gradient(180deg, var(--silver), var(--panel) 70%); animation-delay: 90ms; }
+      .step:nth-child(3) { order: 3; background: linear-gradient(180deg, var(--bronze), var(--panel) 70%); animation-delay: 180ms; }
+      .medal {
+        display: grid; place-items: center; width: 40px; height: 40px; font-size: 20px; font-weight: 900;
+        color: #fff; background: var(--ink); border-radius: 50%; border: 3px solid var(--ink);
+      }
+      .step:nth-child(1) .medal { background: var(--gold); color: var(--ink); width: 52px; height: 52px; font-size: 26px; }
+      .step:nth-child(2) .medal { background: var(--silver); color: var(--ink); }
+      .step:nth-child(3) .medal { background: var(--bronze); color: var(--ink); }
+      .step .name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; }
+      .step .pts { font-size: 22px; font-variant-numeric: tabular-nums; }
+      .step small { color: var(--muted); }
+      table { width: 100%; border-collapse: separate; border-spacing: 0 6px; }
+      th { padding: 6px 12px; font-size: 11px; letter-spacing: 1.8px; text-align: right; text-transform: uppercase; color: var(--muted); }
+      td { padding: 10px 12px; text-align: right; font-variant-numeric: tabular-nums; background: var(--panel-2); }
+      td:first-child { border-radius: 12px 0 0 12px; }
+      td:last-child { border-radius: 0 12px 12px 0; }
+      th:nth-child(-n + 2), td:nth-child(-n + 2) { text-align: left; }
+      td:first-child { width: 52px; color: var(--muted); }
+      tr.me td { background: var(--panel-3); }
+      tbody tr { animation: rise 420ms var(--pop) both; }
+      tbody tr:hover td { background: var(--panel-3); }
+      td a { text-decoration: none; }
+      td a:hover { color: var(--accent); text-decoration: underline wavy; }
+      .state { padding: 28px 12px; text-align: center; color: var(--muted); }
+      .state.err { color: var(--bad); }
+      .spinner { display: inline-block; width: 22px; height: 22px; margin-bottom: 8px; border: 4px solid var(--panel-3); border-top-color: var(--accent); border-radius: 50%; animation: spin 800ms linear infinite; }
+      #history { margin-top: 26px; }
+      #history h2 { margin: 0 0 10px; font-size: 20px; }
+      #history ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+      #history li { padding: 10px 14px; background: var(--panel); border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 3px 0 var(--ink); }
+      @keyframes rise { from { opacity: 0; transform: translateY(18px) scale(0.97); } to { opacity: 1; transform: none; } }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; } }
+      @media (max-width: 520px) { th:nth-child(5), td:nth-child(5) { display: none; } .step .pts { font-size: 18px; } }
     </style>
   </head>
   <body>
-    <h1>🏆 Bestenliste (Top 100)</h1>
-    <div id="board">Lade …</div>
-    <div id="history"></div>
+    <main>
+      <div class="top">
+        <h1>Bestenliste</h1>
+        <a class="btn" href="/">← Zum Spiel</a>
+      </div>
+      <div id="podium" class="podium" hidden></div>
+      <div class="card"><div id="board" class="state"><span class="spinner"></span><br />Lade …</div></div>
+      <div id="history"></div>
+    </main>
     <script type="module">
       const server = new URLSearchParams(location.search).get('server') ?? 'http://localhost:2567'
       const board = document.getElementById('board')
+      const podium = document.getElementById('podium')
       const historyEl = document.getElementById('history')
-      const res = await fetch(`${server}/leaderboard`)
-      if (!res.ok) {
-        board.textContent = 'Bestenliste offline (keine DB).'
-      } else {
-        const rows = await res.json()
-        const table = document.createElement('table')
-        table.innerHTML = '<tr><th>#</th><th>Spieler</th><th>Punkte</th><th>Kills</th><th>Matches</th></tr>'
-        for (const r of rows) {
-          const tr = document.createElement('tr')
-          const link = document.createElement('a')
-          link.href = `?user=${encodeURIComponent(r.userId)}`
-          link.textContent = r.nickname
-          const cells = [r.rank, '', r.score, r.kills, r.matches]
-          cells.forEach((v, i) => {
-            const td = document.createElement('td')
-            if (i === 1) td.appendChild(link)
-            else td.textContent = String(v)
-            tr.appendChild(td)
-          })
-          table.appendChild(tr)
-        }
-        board.replaceChildren(table)
+      const userParam = new URLSearchParams(location.search).get('user')
+      const el = (tag, cls, text) => {
+        const n = document.createElement(tag)
+        if (cls) n.className = cls
+        if (text !== undefined) n.textContent = text
+        return n
       }
-      const user = new URLSearchParams(location.search).get('user')
-      if (user) {
-        const hres = await fetch(`${server}/history/${encodeURIComponent(user)}`)
-        if (hres.ok) {
-          const matches = await hres.json()
-          const h = document.createElement('div')
-          const title = document.createElement('h2')
-          title.textContent = `Letzte ${matches.length} Matches`
-          h.appendChild(title)
-          const ul = document.createElement('ul')
-          for (const m of matches) {
-            const li = document.createElement('li')
-            const me = m.players.find((p) => p.userId === user)
-            li.textContent = `${new Date(m.endedAt).toLocaleString()} – Score ${me?.score ?? 0} (${me?.kills ?? 0}/${me?.deaths ?? 0})`
-            ul.appendChild(li)
+      const stateMsg = (text, err) => {
+        board.className = 'state' + (err ? ' err' : '')
+        board.replaceChildren(document.createTextNode(text))
+      }
+      try {
+        const res = await fetch(`${server}/leaderboard`)
+        if (!res.ok) {
+          stateMsg('Bestenliste offline (keine Datenbank).', false)
+        } else {
+          const rows = await res.json()
+          if (rows.length === 0) {
+            stateMsg('Noch keine Ergebnisse – spiel die erste Runde!', false)
+          } else {
+            // Nur Text-Nodes: Nicknames sind Nutzereingaben (nie innerHTML).
+            rows.slice(0, 3).forEach((r, i) => {
+              const step = el('div', 'step')
+              step.append(el('div', 'medal', String(i + 1)), el('div', 'name', r.nickname), el('div', 'pts', String(r.score)), el('small', '', `${r.kills} Kills · ${r.matches} Matches`))
+              podium.appendChild(step)
+            })
+            podium.hidden = false
+            const table = el('table')
+            const head = el('tr')
+            ;['#', 'Spieler', 'Punkte', 'Kills', 'Matches'].forEach((h) => head.appendChild(el('th', '', h)))
+            const thead = el('thead')
+            thead.appendChild(head)
+            table.appendChild(thead)
+            const tbody = el('tbody')
+            rows.forEach((r, i) => {
+              const tr = el('tr')
+              if (r.userId === userParam) tr.className = 'me'
+              tr.style.animationDelay = `${Math.min(i, 12) * 30}ms`
+              const link = el('a', '', r.nickname)
+              link.href = `?user=${encodeURIComponent(r.userId)}`
+              const nameTd = el('td')
+              nameTd.appendChild(link)
+              tr.append(el('td', '', String(r.rank)), nameTd, el('td', '', String(r.score)), el('td', '', String(r.kills)), el('td', '', String(r.matches)))
+              tbody.appendChild(tr)
+            })
+            table.appendChild(tbody)
+            board.className = ''
+            board.replaceChildren(table)
           }
-          h.appendChild(ul)
-          historyEl.replaceChildren(h)
+        }
+      } catch {
+        stateMsg('Server nicht erreichbar.', true)
+      }
+      if (userParam) {
+        try {
+          const hres = await fetch(`${server}/history/${encodeURIComponent(userParam)}`)
+          if (hres.ok) {
+            const matches = await hres.json()
+            const h = el('div')
+            h.appendChild(el('h2', '', `Letzte ${matches.length} Matches`))
+            const ul = el('ul')
+            for (const m of matches) {
+              const me = m.players.find((p) => p.userId === userParam)
+              ul.appendChild(el('li', '', `${new Date(m.endedAt).toLocaleString()} – Score ${me?.score ?? 0} (${me?.kills ?? 0}/${me?.deaths ?? 0})`))
+            }
+            h.appendChild(ul)
+            historyEl.replaceChildren(h)
+          }
+        } catch {
+          /* Verlauf optional */
         }
       }
     </script>
