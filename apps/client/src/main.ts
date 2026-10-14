@@ -68,8 +68,8 @@ const input = new Input()
 const touch = new TouchControls(
   $<HTMLDivElement>('stick-zone'),
   $<HTMLDivElement>('stick-knob'),
-  $<HTMLDivElement>('fire-zone'),
-  $<HTMLButtonElement>('fire-btn'),
+  $<HTMLDivElement>('aim-zone'),
+  $<HTMLDivElement>('aim-knob'),
 )
 const net = new NetClient()
 const prediction = new Prediction()
@@ -614,29 +614,10 @@ addEventListener(
   { capture: true },
 )
 
-/** Naechster lebender Gegner im Umkreis (Welt-px) fuer das Auto-Aim, sonst null. */
-function nearestEnemy(from: { x: number; y: number }): ClientPlayer | null {
-  let best: ClientPlayer | null = null
-  let bestD = 800
-  for (const p of players) {
-    if (p.id === net.sessionId || !p.alive) continue
-    const d = Math.hypot(p.x - from.x, p.y - from.y)
-    if (d < bestD) {
-      bestD = d
-      best = p
-    }
-  }
-  return best
-}
-
-/** Zielrichtung: Touch = manuell (Button ziehen) > Auto-Aim > Laufrichtung; sonst Maus. */
+/** Zielrichtung: Touch = Ziel-Stick (zuletzt gezielte Richtung bleibt), sonst Laufrichtung; sonst Maus. */
 function currentAim(): number {
   const pos = prediction.predicted
-  if (touchMode) {
-    if (touch.aimOverride !== null) return touch.aimOverride
-    const target = nearestEnemy(pos)
-    return target ? Math.atan2(target.y - pos.y, target.x - pos.x) : touch.facing
-  }
+  if (touchMode) return touch.aimAngle ?? touch.facing
   const s = renderer.worldToScreen(pos.x, pos.y)
   return Math.atan2(input.mouseY - s.y, input.mouseX - s.x)
 }
