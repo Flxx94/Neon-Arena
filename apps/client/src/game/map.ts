@@ -179,6 +179,50 @@ function drawDecals(ctx: CanvasRenderingContext2D, pal: Palette): void {
     ctx.lineTo(px, py + sy * 54)
     ctx.stroke()
   }
+  // Viertel-Embleme: orientieren in der grossen Arena (Ring + Raute)
+  for (const [qx, qy] of [
+    [0.25, 0.25],
+    [0.75, 0.25],
+    [0.25, 0.75],
+    [0.75, 0.75],
+  ] as const) {
+    const ex = ARENA_WIDTH * qx
+    const ey = ARENA_HEIGHT * qy
+    ctx.strokeStyle = pal.decal
+    ctx.lineWidth = 4
+    ctx.beginPath()
+    ctx.arc(ex, ey, 96, 0, TAU)
+    ctx.stroke()
+    ctx.setLineDash([12, 12])
+    ctx.beginPath()
+    ctx.arc(ex, ey, 70, 0, TAU)
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.strokeStyle = pal.decalStrong
+    ctx.lineWidth = 5
+    ctx.beginPath()
+    ctx.moveTo(ex, ey - 38)
+    ctx.lineTo(ex + 38, ey)
+    ctx.lineTo(ex, ey + 38)
+    ctx.lineTo(ex - 38, ey)
+    ctx.closePath()
+    ctx.stroke()
+  }
+  // Mittellinien (Orientierung): gestrichelt zwischen Emblemen
+  ctx.strokeStyle = pal.decal
+  ctx.lineWidth = 4
+  ctx.setLineDash([22, 18])
+  ctx.beginPath()
+  ctx.moveTo(cx - 520, cy)
+  ctx.lineTo(cx - 320, cy)
+  ctx.moveTo(cx + 320, cy)
+  ctx.lineTo(cx + 520, cy)
+  ctx.moveTo(cx, cy - 320)
+  ctx.lineTo(cx, cy - 520)
+  ctx.moveTo(cx, cy + 320)
+  ctx.lineTo(cx, cy + 520)
+  ctx.stroke()
+  ctx.setLineDash([])
   // Boden-Schriftzug
   ctx.save()
   ctx.globalAlpha = 0.5
@@ -357,18 +401,30 @@ function drawWall(ctx: CanvasRenderingContext2D, pal: Palette, o: ObstacleRect):
   }
 }
 
-/** Rendert den kompletten statischen Hintergrund (Viewport-gross) in einen Offscreen-Canvas. */
-export function buildStaticLayer(pal: Palette, v: View): HTMLCanvasElement {
+/** Hintergrund ausserhalb der Arena (Viewport-gross, unabhaengig von der Kamera). */
+export function buildBackdropLayer(pal: Palette, v: View): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round(v.w * v.dpr))
   canvas.height = Math.max(1, Math.round(v.h * v.dpr))
   const ctx = canvas.getContext('2d')!
   ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0)
   drawBackdrop(ctx, pal, v)
+  return canvas
+}
 
-  ctx.save()
-  ctx.translate(v.ox, v.oy)
-  ctx.scale(v.scale, v.scale)
+/** Rand um die Arena im Welt-Layer (Sockel, Schatten, Eck-Beacons). */
+export const WORLD_PAD = 48
+
+/**
+ * Rendert die komplette Arena (Boden, Rand, Waende) einmal pro (Theme, Aufloesung) in einen
+ * Offscreen-Canvas. `ls` = Pixel pro Welteinheit; die Kamera zeichnet ihn skaliert/verschoben.
+ */
+export function buildWorldLayer(pal: Palette, ls: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round((ARENA_WIDTH + WORLD_PAD * 2) * ls))
+  canvas.height = Math.max(1, Math.round((ARENA_HEIGHT + WORLD_PAD * 2) * ls))
+  const ctx = canvas.getContext('2d')!
+  ctx.setTransform(ls, 0, 0, ls, WORLD_PAD * ls, WORLD_PAD * ls)
 
   // Arena-Sockel: Schatten + dicke Kante (3D-Rand unten)
   ctx.fillStyle = pal.shadow
@@ -392,7 +448,6 @@ export function buildStaticLayer(pal: Palette, v: View): HTMLCanvasElement {
   // Waende nach Hoehe sortieren: weiter unten = spaeter (korrekte Ueberlappung der Skirts)
   const walls = [...OBSTACLES].sort((a, b) => a.y + a.h - (b.y + b.h))
   for (const o of walls) drawWall(ctx, pal, o)
-  ctx.restore()
   return canvas
 }
 

@@ -42,14 +42,14 @@ describe('Map "Prism Plaza"', () => {
     }
   })
 
-  it('Hindernisse sind mindestens 30 breit (Projektile tunneln nicht, 20 px/Tick)', () => {
+  it('Hindernisse sind mindestens 30 breit (Projektile tunneln nicht, 13 px/Tick)', () => {
     for (const o of OBSTACLES) expect(Math.min(o.w, o.h)).toBeGreaterThanOrEqual(30)
   })
 
   it('Mitte und die Test-Schusslinien bleiben frei', () => {
     expect(blocked(ARENA_WIDTH / 2, ARENA_HEIGHT / 2, PLAYER_RADIUS)).toBe(false)
-    // Ein Schuss aus der Mitte nach Osten fliegt >= 11 Ticks (20 px/Tick) frei: Engine-Tests.
-    for (let x = 700; x <= 1080; x += 2) expect(blocked(x, 450, 4)).toBe(false)
+    // Ein Schuss aus der Mitte nach Osten fliegt >= 30 Ticks (13 px/Tick) frei: Engine-Tests.
+    for (let x = 1300; x <= 1830; x += 2) expect(blocked(x, 800, 4)).toBe(false)
     for (let x = 200; x <= 500; x += 2) expect(blocked(x, 150, 4)).toBe(false)
   })
 

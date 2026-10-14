@@ -19,3 +19,12 @@
   - Bots weichen quer aus, damit sie an den neuen Hindernissen nicht haengen bleiben.
 - Bewusst nicht: externe Webfonts (DSGVO/LAN) -> System-Rundschrift-Stack. Bundle bleibt weit unter 150 KB gzip (~37 KB).
 - Konsequenz: `PROTOCOL_V` bleibt 1 (additive Felder: alte Clients ignorieren sie).
+
+## ADR-003: Grosse Arena (2800x1600), Folgekamera, langsamere Sim
+- Status: akzeptiert (2026-10-14)
+- Entscheidung: Arena 1600x900 -> 2800x1600; `PLAYER_SPEED` 220 -> 165, `PROJECTILE_SPEED` 600 -> 400 (TTL 2200 ms,
+  Reichweite ~880 px), Pickups haeufiger (9 s, max. 5), Bot-Reichweiten leicht erhoeht.
+  - Karte "Prism Plaza": ein Viertel + Mittellinien in `shared/constants.ts`, die anderen Viertel per Spiegelung (Symmetrie bleibt Test-Invariante).
+  - Client: Kamera folgt dem eigenen Spieler (Zoom ~1600x900 Welteinheiten sichtbar, auf kleinen Handys enger), Arena einmal als Offscreen-Layer
+    (max. 1.25 px/Einheit) + separater Viewport-Hintergrund. `worldToScreen` nutzt die Kamera (Maus-Zielen bleibt korrekt).
+- Konsequenz: Sim-Konstanten kommen weiter nur aus `shared`; `PROTOCOL_V` bleibt 1.
