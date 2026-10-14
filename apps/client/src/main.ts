@@ -14,6 +14,7 @@ import {
 import { SoundFX } from './game/Audio.js'
 import { CanvasRenderer } from './game/CanvasRenderer.js'
 import { Input } from './game/Input.js'
+import { TouchControls } from './game/TouchControls.js'
 import { Interpolator } from './game/Interpolation.js'
 import { PALETTES, SKIN_COLORS, skinTone } from './game/palette.js'
 import { Prediction } from './game/Prediction.js'
@@ -64,6 +65,12 @@ debugEl.hidden = !debug
 
 const renderer = new CanvasRenderer(canvas)
 const input = new Input()
+const touch = new TouchControls(
+  $<HTMLDivElement>('stick-zone'),
+  $<HTMLDivElement>('stick-knob'),
+  $<HTMLDivElement>('fire-zone'),
+  $<HTMLButtonElement>('fire-btn'),
+)
 const net = new NetClient()
 const prediction = new Prediction()
 const interp = new Interpolator()
@@ -466,6 +473,7 @@ renderer.hooks = {
 function enterIdle(): void {
   connected = false
   document.body.classList.remove('playing')
+  touch.reset()
   hudEl.hidden = true
   timerBox.hidden = true
   scoreEl.hidden = true
@@ -584,14 +592,62 @@ declare global {
   }
 }
 
+// ---------------------------------------------------------------------------------------
+// Touch-Modus: automatisch auf Geraeten mit grobem Zeiger oder nach der ersten Beruehrung;
+// eine echte Maus schaltet ihn auf Hybrid-Geraeten wieder ab.
+// ---------------------------------------------------------------------------------------
+let touchMode = false
+function setTouchMode(on: boolean): void {
+  if (on === touchMode) return
+  touchMode = on
+  document.body.classList.toggle('touch', on)
+  if (!on) touch.reset()
+}
+const coarsePrimary = matchMedia('(pointer: coarse)')
+if (coarsePrimary.matches) setTouchMode(true)
+addEventListener(
+  'pointerdown',
+  (e) => {
+    if (e.pointerType === 'touch') setTouchMode(true)
+    else if (e.pointerType === 'mouse' && !coarsePrimary.matches) setTouchMode(false)
+  },
+  { capture: true },
+)
+
+/** Naechster lebender Gegner im Umkreis (Welt-px) fuer das Auto-Aim, sonst null. */
+function nearestEnemy(from: { x: number; y: number }): ClientPlayer | null {
+  let best: ClientPlayer | null = null
+  let bestD = 800
+  for (const p of players) {
+    if (p.id === net.sessionId || !p.alive) continue
+    const d = Math.hypot(p.x - from.x, p.y - from.y)
+    if (d < bestD) {
+      bestD = d
+      best = p
+    }
+  }
+  return best
+}
+
+/** Zielrichtung: Touch = manuell (Button ziehen) > Auto-Aim > Laufrichtung; sonst Maus. */
+function currentAim(): number {
+  const pos = prediction.predicted
+  if (touchMode) {
+    if (touch.aimOverride !== null) return touch.aimOverride
+    const target = nearestEnemy(pos)
+    return target ? Math.atan2(target.y - pos.y, target.x - pos.x) : touch.facing
+  }
+  const s = renderer.worldToScreen(pos.x, pos.y)
+  return Math.atan2(input.mouseY - s.y, input.mouseX - s.x)
+}
+
 // Input-Loop 30 Hz: senden + lokal vorhersagen.
 let lastShootSfx = 0
 setInterval(() => {
   if (!connected) return
-  const { dx, dy } = input.readMove()
-  const ownScreen = renderer.worldToScreen(prediction.predicted.x, prediction.predicted.y)
-  const aim = Math.atan2(input.mouseY - ownScreen.y, input.mouseX - ownScreen.x)
-  const firing = input.firing && settingsClosed()
+  const { dx, dy } = touchMode && touch.moving ? touch.move : input.readMove()
+  const aim = currentAim()
+  const firing = (input.firing || touch.firing) && settingsClosed()
   const seq = net.sendInput(dx, dy, aim, firing)
   if (seq >= 0) {
     const now = performance.now()
@@ -712,8 +768,7 @@ function frame() {
 
   // Eigene Position predicted (M2-05), Gegner interpoliert (M3-05).
   const ownId = net.sessionId
-  const ownScreen = renderer.worldToScreen(prediction.predicted.x, prediction.predicted.y)
-  const liveAim = Math.atan2(input.mouseY - ownScreen.y, input.mouseX - ownScreen.x)
+  const liveAim = currentAim()
   const rendered = players.map((p) => {
     if (p.id === ownId)
       return { ...p, x: prediction.predicted.x, y: prediction.predicted.y, aim: liveAim }
@@ -726,7 +781,7 @@ function frame() {
     pickups,
     ownId,
     mouse: { x: input.mouseX, y: input.mouseY },
-    crosshair: settingsClosed(),
+    crosshair: settingsClosed() && !touchMode,
   })
   renderScoreboard()
 

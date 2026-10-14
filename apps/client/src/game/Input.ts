@@ -4,8 +4,11 @@ export class Input {
   mouseX = 0
   mouseY = 0
   firing = false
+  /** Zeitpunkt der letzten Beruehrung: emulierte Maus-Events nach einem Tap ignorieren. */
+  private lastTouchAt = -10_000
 
   constructor() {
+    addEventListener('touchstart', () => (this.lastTouchAt = performance.now()), { passive: true })
     addEventListener('keydown', (e) => this.keys.add(e.code))
     addEventListener('keyup', (e) => this.keys.delete(e.code))
     addEventListener('mousemove', (e) => {
@@ -16,6 +19,7 @@ export class Input {
       // Klicks auf UI (Buttons, Einstellungen, Formular) feuern nicht.
       const t = e.target as Element | null
       if (t?.closest?.('.ui, button, input, a')) return
+      if (performance.now() - this.lastTouchAt < 800) return
       if (e.button === 0) this.firing = true
     })
     // Fokusverlust (Alt-Tab, Einstellungen): nichts haengen lassen.

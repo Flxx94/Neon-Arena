@@ -2,8 +2,9 @@
 <html lang="de" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#0d0822" />
     <meta name="description" content="Neon Arena – schnelle Mehrspieler-Arena im Browser. Wähle deine Figur und schieß dich an die Spitze." />
     <title>Neon Arena</title>
@@ -76,6 +77,19 @@
         <p class="dead-sub">Respawn …</p>
       </div>
     </div>
+
+    <!-- Touch-Steuerung (nur auf Touch-Geraeten im Spiel sichtbar, siehe CSS body.touch.playing) -->
+    <div id="touch" class="ui" aria-hidden="true">
+      <div id="stick-zone" class="zone">
+        <div id="stick-base"><div id="stick-knob"></div></div>
+      </div>
+      <div id="fire-zone" class="zone">
+        <button id="fire-btn" type="button" tabindex="-1" aria-label="Schießen">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.5"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/></svg>
+        </button>
+      </div>
+    </div>
+    <div id="rotate-hint" class="chip">Quer halten für mehr Übersicht</div>
 
     <!-- Immer sichtbare Werkzeuge -->
     <div id="tools" class="ui">
