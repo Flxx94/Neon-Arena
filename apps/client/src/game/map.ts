@@ -1,6 +1,8 @@
 import {
   ARENA_HEIGHT,
   ARENA_WIDTH,
+  BOOST_PADS,
+  BOOST_PAD_RADIUS,
   MAP_NAME,
   OBSTACLES,
   type ObstacleRect,
@@ -234,6 +236,49 @@ function drawDecals(ctx: CanvasRenderingContext2D, pal: Palette): void {
   ctx.restore()
 }
 
+/** Blitz-Symbol (Boost) um (0,0), Hoehe ~2*s. */
+function boltPath(ctx: CanvasRenderingContext2D, s: number): void {
+  ctx.beginPath()
+  ctx.moveTo(s * 0.18, -s)
+  ctx.lineTo(-s * 0.55, s * 0.12)
+  ctx.lineTo(-s * 0.06, s * 0.12)
+  ctx.lineTo(-s * 0.2, s)
+  ctx.lineTo(s * 0.55, -s * 0.2)
+  ctx.lineTo(s * 0.06, -s * 0.2)
+  ctx.closePath()
+}
+
+/** Boost-Felder: statischer Teil (Sockel, Ring, Blitz). Pulsierendes Leuchten kommt in drawAmbient. */
+function drawBoostPads(ctx: CanvasRenderingContext2D, pal: Palette): void {
+  const r = BOOST_PAD_RADIUS
+  for (const pad of BOOST_PADS) {
+    ctx.save()
+    ctx.translate(pad.x, pad.y)
+    ctx.beginPath()
+    ctx.arc(0, 0, r, 0, TAU)
+    ctx.fillStyle = pal.theme === 'dark' ? 'rgba(255, 233, 92, 0.16)' : 'rgba(255, 158, 0, 0.22)'
+    ctx.fill()
+    ctx.lineWidth = 4
+    ctx.strokeStyle = pal.bullet
+    ctx.stroke()
+    ctx.setLineDash([10, 9])
+    ctx.lineWidth = 3
+    ctx.strokeStyle = pal.decalStrong
+    ctx.beginPath()
+    ctx.arc(0, 0, r - 11, 0, TAU)
+    ctx.stroke()
+    ctx.setLineDash([])
+    boltPath(ctx, 24)
+    ctx.fillStyle = pal.bullet
+    ctx.fill()
+    ctx.lineWidth = 3.5
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = pal.ink
+    ctx.stroke()
+    ctx.restore()
+  }
+}
+
 function drawBand(ctx: CanvasRenderingContext2D, pal: Palette): void {
   ctx.save()
   ctx.beginPath()
@@ -442,6 +487,7 @@ export function buildWorldLayer(pal: Palette, ls: number): HTMLCanvasElement {
   ctx.clip()
   drawFloor(ctx, pal)
   drawDecals(ctx, pal)
+  drawBoostPads(ctx, pal)
   drawBand(ctx, pal)
   ctx.restore()
 
@@ -462,6 +508,17 @@ export function drawAmbient(ctx: CanvasRenderingContext2D, pal: Palette, t: numb
   ctx.beginPath()
   ctx.arc(cx, cy, 24 + k * 170, 0, TAU)
   ctx.stroke()
+  ctx.globalAlpha = 1
+  // Boost-Felder: auslaufende Pulsringe (gegeneinander versetzt)
+  ctx.strokeStyle = pal.bullet
+  BOOST_PADS.forEach((pad, i) => {
+    const kk = ((t + i * 0.37) % 1.4) / 1.4
+    ctx.globalAlpha = (1 - kk) * 0.7
+    ctx.lineWidth = 4 * (1 - kk) + 1
+    ctx.beginPath()
+    ctx.arc(pad.x, pad.y, BOOST_PAD_RADIUS * (0.55 + kk * 0.75), 0, TAU)
+    ctx.stroke()
+  })
   ctx.globalAlpha = 1
   // Eck-Beacons (ausserhalb des Rands, auf dem Sockel)
   const colors = [

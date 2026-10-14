@@ -50,6 +50,7 @@ export interface ClientPlayer {
   isBot: boolean
   skin: number
   aim: number
+  boost: number
 }
 
 export interface ClientProjectile {
@@ -116,6 +117,7 @@ export class NetClient {
             isBot: boolean
             skin: number
             aim: number
+            boost: number
           },
         ]) => ({
           id,
@@ -132,6 +134,7 @@ export class NetClient {
           isBot: p.isBot,
           skin: p.skin,
           aim: p.aim,
+          boost: p.boost ?? 0,
         }),
       )
       const projectiles: ClientProjectile[] = [...state.projectiles.values()].map(

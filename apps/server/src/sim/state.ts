@@ -15,6 +15,8 @@ export class Player extends Schema {
   @type('uint8') skin = 0
   /** Zielrichtung in rad (auf 0.05 gerundet): Clients zeichnen damit Blick + Waffe der Gegner. */
   @type('float32') aim = 0
+  /** Verbleibende Boost-Ticks (0 = kein Boost); Clients brauchen es fuer Prediction + Effekte. */
+  @type('uint8') boost = 0
   /** Letzte vom Server angewendete Input-seq (fuer Client-Reconciliation, M2-05). */
   @type('number') ackSeq = -1
 }

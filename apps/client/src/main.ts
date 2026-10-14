@@ -4,6 +4,7 @@ import {
   COLOR_COUNT,
   COLOR_NAMES,
   FIRE_INTERVAL_MS,
+  TICK_RATE,
   MODEL_COUNT,
   MODEL_NAMES,
   RESPAWN_SECONDS,
@@ -12,7 +13,7 @@ import {
   skinModel,
 } from '@neon-arena/shared'
 import { SoundFX } from './game/Audio.js'
-import { CanvasRenderer } from './game/CanvasRenderer.js'
+import { CanvasRenderer, frameTime } from './game/CanvasRenderer.js'
 import { Input } from './game/Input.js'
 import { TouchControls } from './game/TouchControls.js'
 import { Interpolator } from './game/Interpolation.js'
@@ -527,7 +528,7 @@ playBtn.addEventListener('click', () => {
           if (n) n.textContent = String(snapshot.timeLeft)
         }
         const own = players.find((p) => p.id === net.sessionId)
-        if (own) prediction.reconcile(own.x, own.y, own.ackSeq)
+        if (own) prediction.reconcile(own.x, own.y, own.ackSeq, own.boost)
       },
       onKill: (by, victim) => pushKill(by, victim),
       onError: (msg) => {
@@ -579,10 +580,13 @@ playBtn.addEventListener('click', () => {
 })
 
 // Test-Hook fuer Playwright: nur lesender Zugriff.
+let lastOwnRender = { x: 0, y: 0 }
 window.__arena = {
   players: () => players,
   projectiles: () => projectiles,
   connected: () => connected,
+  /** Zuletzt gerenderte Position des eigenen Spielers (Debug/Tests). */
+  ownRender: () => lastOwnRender,
 }
 
 declare global {
@@ -591,6 +595,7 @@ declare global {
       players: () => ClientPlayer[]
       projectiles: () => ClientProjectile[]
       connected: () => boolean
+      ownRender: () => { x: number; y: number }
     }
   }
 }
@@ -625,9 +630,13 @@ function currentAim(): number {
   return Math.atan2(input.mouseY - s.y, input.mouseX - s.x)
 }
 
-// Input-Loop 30 Hz: senden + lokal vorhersagen.
+// Input-Tick 30 Hz: senden + lokal vorhersagen. Wird aus dem Render-Loop per Akkumulator getaktet
+// (gleichmaessig, keine setInterval-Jitter -> fluessige Bewegung); nur bei verstecktem Tab (rAF pausiert)
+// uebernimmt ein Timer, damit die Verbindung nicht ausduennt.
+const TICK_MS = 1000 / TICK_RATE
+let tickAcc = 0
 let lastShootSfx = 0
-setInterval(() => {
+function inputTick(): void {
   if (!connected) return
   const { dx, dy } = touchMode && touch.moving ? touch.move : input.readMove()
   const aim = currentAim()
@@ -641,9 +650,17 @@ setInterval(() => {
       activity = Math.min(1, activity + 0.04)
       sfx.shoot()
     }
+    const boostBefore = prediction.boostLeft
     prediction.applyLocal({ seq, dx, dy })
+    if (boostBefore <= 0 && prediction.boostLeft > 0 && own?.alive) {
+      sfx.boost()
+      renderer.fx.text(prediction.predicted.x, prediction.predicted.y - 34, 'BOOST!', '#ffd23f', 20)
+    }
   }
-}, 1000 / 30)
+}
+setInterval(() => {
+  if (document.hidden) inputTick()
+}, TICK_MS)
 
 // ---------------------------------------------------------------------------------------
 // Rangliste + HUD
@@ -716,9 +733,13 @@ function updateHud(own: ClientPlayer | undefined): void {
 // Render-Loop 60 fps
 // ---------------------------------------------------------------------------------------
 let idleSparkAt = 0
+let lastFrameAt = frameTime()
 function frame() {
   frames++
   const now = performance.now()
+  const frameStamp = frameTime()
+  const frameDt = Math.min(0.1, Math.max(0, (frameStamp - lastFrameAt) / 1000))
+  lastFrameAt = frameStamp
   if (now - lastFpsAt >= 500) {
     fps = Math.round((frames * 1000) / (now - lastFpsAt))
     frames = 0
@@ -750,12 +771,27 @@ function frame() {
     return
   }
 
-  // Eigene Position predicted (M2-05), Gegner interpoliert (M3-05).
+  // Eingabe-Takt (30 Hz) aus dem Render-Loop; max. 2 Ticks pro Frame, Rest verfaellt (kein Burst nach Hitch).
+  if (!document.hidden) {
+    tickAcc += frameDt * 1000
+    let ticks = 0
+    while (tickAcc >= TICK_MS && ticks < 2) {
+      inputTick()
+      tickAcc -= TICK_MS
+      ticks++
+    }
+    if (tickAcc >= TICK_MS) tickAcc %= TICK_MS
+  }
+  prediction.decay(frameDt)
+
+  // Eigene Position predicted + zwischen den 30-Hz-Schritten interpoliert (M2-05), Gegner interpoliert (M3-05).
   const ownId = net.sessionId
   const liveAim = currentAim()
+  const ownPos = prediction.renderPos(tickAcc / TICK_MS)
+  lastOwnRender = ownPos
   const rendered = players.map((p) => {
     if (p.id === ownId)
-      return { ...p, x: prediction.predicted.x, y: prediction.predicted.y, aim: liveAim }
+      return { ...p, x: ownPos.x, y: ownPos.y, aim: liveAim, boost: prediction.boostLeft }
     const interpPos = interp.sample(p.id, now)
     return interpPos ? { ...p, x: interpPos.x, y: interpPos.y } : p
   })

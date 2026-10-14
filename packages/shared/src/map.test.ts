@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import {
+  BOOST_PADS,
+  BOOST_PAD_RADIUS,
+  BOOST_SPEED_MULT,
+  BOOST_TICKS,
+  PLAYER_SPEED,
+  TICK_RATE,
   ARENA_HEIGHT,
   ARENA_WIDTH,
   OBSTACLES,
   PLAYER_RADIUS,
   type ObstacleRect,
 } from './constants.js'
+import { onBoostPad, stepPlayer } from './physics.js'
 import { COLOR_COUNT, MODEL_COUNT, SKIN_COUNT, makeSkin, skinColor, skinModel } from './skins.js'
 
 function blocked(x: number, y: number, margin: number): boolean {
@@ -111,5 +118,45 @@ describe('Skins', () => {
     expect(skinModel(makeSkin(-1, -1))).toBe(MODEL_COUNT - 1)
     expect(skinColor(makeSkin(-1, -1))).toBe(COLOR_COUNT - 1)
     expect(skinModel(SKIN_COUNT + 2)).toBe(2)
+  })
+})
+
+describe('Boost-Felder', () => {
+  it('liegen frei (kein Hindernis, innerhalb der Arena) und sind symmetrisch', () => {
+    for (const p of BOOST_PADS) {
+      expect(blocked(p.x, p.y, BOOST_PAD_RADIUS + PLAYER_RADIUS)).toBe(false)
+      expect(p.x).toBeGreaterThan(BOOST_PAD_RADIUS)
+      expect(p.x).toBeLessThan(ARENA_WIDTH - BOOST_PAD_RADIUS)
+      expect(p.y).toBeGreaterThan(BOOST_PAD_RADIUS)
+      expect(p.y).toBeLessThan(ARENA_HEIGHT - BOOST_PAD_RADIUS)
+      const has = (x: number, y: number) =>
+        BOOST_PADS.some((q) => Math.abs(q.x - x) < 1e-6 && Math.abs(q.y - y) < 1e-6)
+      expect(has(ARENA_WIDTH - p.x, p.y)).toBe(true)
+      expect(has(p.x, ARENA_HEIGHT - p.y)).toBe(true)
+    }
+  })
+
+  it('stepPlayer: Boost startet auf dem Feld, beschleunigt, laeuft nach BOOST_TICKS aus', () => {
+    const pad = BOOST_PADS[0]!
+    const p = { x: pad.x - 10, y: pad.y }
+    expect(onBoostPad(p)).toBe(true)
+    let boost = stepPlayer(p, 0, 0, 0)
+    expect(boost).toBe(BOOST_TICKS)
+    // Vom Feld weglaufen (nach oben, frei): erste Schritte mit Boost
+    const base = PLAYER_SPEED / TICK_RATE
+    const y0 = p.y
+    boost = stepPlayer(p, boost, 0, -1)
+    expect(y0 - p.y).toBeCloseTo(base * BOOST_SPEED_MULT, 5)
+    for (let i = 0; i < 12; i++) boost = stepPlayer(p, boost, 0, -1) // Feld verlassen
+    expect(onBoostPad(p)).toBe(false)
+    let steps = 0
+    while (boost > 0 && steps < 500) {
+      boost = stepPlayer(p, boost, 0, 0)
+      steps++
+    }
+    expect(boost).toBe(0)
+    const y1 = p.y
+    stepPlayer(p, 0, 0, 1)
+    expect(p.y - y1).toBeCloseTo(base, 5)
   })
 })

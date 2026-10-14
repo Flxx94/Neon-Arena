@@ -1,5 +1,6 @@
 import { Client, Room } from '@colyseus/core'
 import {
+  INPUT_BURST_TOLERANCE,
   MAX_IDLE_SECONDS,
   MAX_PLAYERS_PER_ROOM,
   PLAYER_HP,
@@ -78,13 +79,13 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 
   private async handleInput(client: Client, raw: unknown): Promise<void> {
-    // M4-05: Input-Limit 30/s (Toleranz 35), Flood -> Disconnect.
+    // M4-05: Input-Limit 30/s (Toleranz 45 fuer Client-Hitches), Flood -> Disconnect.
     const hits = await getRateStore().hit(`input:${client.sessionId}`, 1000)
     if (hits > 120) {
       client.leave(4400)
       return
     }
-    if (hits > 35) return
+    if (hits > INPUT_BURST_TOLERANCE) return
     const parsed = inputSchema.safeParse(raw)
     if (!parsed.success) return
     applyInput(this.ctx, this.state, client.sessionId, parsed.data)

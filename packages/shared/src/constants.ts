@@ -15,6 +15,8 @@ export const KILL_SCORE = 100
 export const RESPAWN_SECONDS = 3
 export const SPAWN_PROTECTION_SECONDS = 2
 export const MAX_INPUT_PER_SECOND = 30
+/** Server toleriert Bursts (Frame-Hitches des Clients), ohne Inputs zu verwerfen. */
+export const INPUT_BURST_TOLERANCE = 45
 export const INTERPOLATION_BUFFER_MS = 100
 export const SERVER_REWIND_MS = 100
 
@@ -92,6 +94,36 @@ export const OBSTACLES: ObstacleRect[] = [
     mirrored(o, true, true),
   ]),
   ...CENTER.slice(2),
+]
+
+// --- Boost-Felder: kurzer Speed-Boost beim Drueberlaufen (Server + Client-Prediction identisch) ---
+export const BOOST_SPEED_MULT = 1.7
+/** Boost-Dauer in Ticks (2 s bei 30 Hz); auf dem Feld stehen bleibend wird er aufgefrischt. */
+export const BOOST_TICKS = 60
+export const BOOST_PAD_RADIUS = 46
+
+export interface BoostPad {
+  x: number
+  y: number
+}
+
+const PAD_QUADRANT: BoostPad[] = [{ x: 860, y: 680 }]
+const PAD_CENTER: BoostPad[] = [
+  { x: 1400, y: 330 },
+  { x: 1400, y: 1270 },
+  { x: 260, y: 800 },
+  { x: 2540, y: 800 },
+]
+
+/** 8 Felder, punkt- und achsensymmetrisch (faire Verteilung). */
+export const BOOST_PADS: BoostPad[] = [
+  ...PAD_CENTER,
+  ...PAD_QUADRANT.flatMap((p) => [
+    p,
+    { x: ARENA_WIDTH - p.x, y: p.y },
+    { x: p.x, y: ARENA_HEIGHT - p.y },
+    { x: ARENA_WIDTH - p.x, y: ARENA_HEIGHT - p.y },
+  ]),
 ]
 
 // --- Runden & Pickups & Bots (M3) ---

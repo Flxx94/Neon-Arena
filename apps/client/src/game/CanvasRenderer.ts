@@ -72,6 +72,15 @@ function angleLerp(from: number, to: number, k: number): number {
 }
 
 /** Plain-Canvas-Renderer (ADR-001) im "Toy Arcade"-Look: Tinten-Outlines, Cel-Shading, 2.5D-Waende. */
+/**
+ * Zeitstempel des aktuellen Animationsframes (vsync-ausgerichtet, ohne Scheduling-Jitter von
+ * performance.now() im rAF-Callback) -> gleichmaessigere Schrittweiten/Kamera.
+ */
+export function frameTime(): number {
+  const t = document.timeline?.currentTime
+  return typeof t === 'number' ? t : performance.now()
+}
+
 export class CanvasRenderer implements Renderer {
   readonly fx = new Effects()
   hooks: RenderHooks = {}
@@ -90,7 +99,7 @@ export class CanvasRenderer implements Renderer {
   private anims = new Map<string, Anim>()
   private projs = new Map<string, ProjTrack>()
   private pickups = new Map<string, PickupTrack>()
-  private lastAt = performance.now()
+  private lastAt = frameTime()
   private clock = 0
   private lastOwnShotAt = -10
   private initialized = false
@@ -188,7 +197,7 @@ export class CanvasRenderer implements Renderer {
   }
 
   private tickClock(): number {
-    const now = performance.now()
+    const now = frameTime()
     const dt = Math.min(0.05, Math.max(0.001, (now - this.lastAt) / 1000))
     this.lastAt = now
     this.clock += dt
@@ -426,6 +435,7 @@ export class CanvasRenderer implements Renderer {
     const order = [...state.players].filter((p) => p.alive).sort((a, b) => a.y - b.y)
     this.drawShadows(ctx, order, t)
     this.drawProjectiles(ctx, t)
+    this.drawBoostAuras(ctx, order, t, dt)
     for (const p of order) this.drawPlayer(ctx, p, p.id === state.ownId, t)
     this.fx.draw(ctx, pal)
     for (const p of order) this.drawNameplate(ctx, p, p.id === state.ownId)
@@ -437,6 +447,40 @@ export class CanvasRenderer implements Renderer {
     if (own?.alive) this.drawLowHp(ctx, own.hp, dt)
     if (state.crosshair && own?.alive)
       this.drawCrosshair(ctx, state.mouse, skinTone(skinColor(own.skin)).base, t)
+  }
+
+  private boostTrailAt = new Map<string, number>()
+
+  /** Speed-Boost: pulsierende Aura unter der Figur + Nachleuchten (Punkte) hinter ihr. */
+  private drawBoostAuras(
+    ctx: CanvasRenderingContext2D,
+    order: RenderPlayer[],
+    t: number,
+    _dt: number,
+  ): void {
+    for (const p of order) {
+      if (p.boost <= 0) {
+        this.boostTrailAt.delete(p.id)
+        continue
+      }
+      const fade = Math.min(1, p.boost / 12) // letzte 0.4 s ausblenden
+      const pulse = 0.5 + 0.5 * Math.sin(t * 16)
+      ctx.globalAlpha = (0.35 + 0.25 * pulse) * fade
+      ctx.beginPath()
+      ctx.arc(p.x, p.y + 4, PLAYER_RADIUS + 8 + pulse * 4, 0, Math.PI * 2)
+      ctx.fillStyle = this.pal.bullet
+      ctx.fill()
+      ctx.globalAlpha = fade
+      ctx.lineWidth = 3
+      ctx.strokeStyle = this.pal.bullet
+      ctx.stroke()
+      ctx.globalAlpha = 1
+      const last = this.boostTrailAt.get(p.id) ?? 0
+      if (t - last > 0.035) {
+        this.boostTrailAt.set(p.id, t)
+        this.fx.trail(p.x, p.y + 6, this.pal.bullet)
+      }
+    }
   }
 
   private drawPickups(ctx: CanvasRenderingContext2D, t: number): void {

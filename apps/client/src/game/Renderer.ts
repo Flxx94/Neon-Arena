@@ -12,6 +12,8 @@ export interface RenderPlayer {
   skin: number
   /** Zielrichtung in rad (eigener Spieler: lokal, sonst vom Server). */
   aim: number
+  /** Verbleibende Boost-Ticks (0 = keiner): Speed-Streifen + Aura. */
+  boost: number
   isBot: boolean
 }
 

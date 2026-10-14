@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   ARENA_WIDTH,
+  BOOST_PADS,
+  BOOST_SPEED_MULT,
+  BOOST_TICKS,
   OBSTACLES,
   PLAYER_RADIUS,
+  PLAYER_SPEED,
   PROJECTILE_DAMAGE,
   RESPAWN_SECONDS,
   SKIN_COUNT,
@@ -278,5 +282,48 @@ describe('engine UI v3 (Skins, Aim, Bot-Ausweichen)', () => {
     expect(Math.abs(botInput.dy)).toBeGreaterThan(0.1)
     expect(Math.hypot(botInput.dx, botInput.dy)).toBeLessThanOrEqual(1.0001)
     expect(botInput.fire).toBe(false)
+  })
+})
+
+describe('engine Input-Queue + Boost', () => {
+  it('verbraucht pro Tick genau einen Input (Client-Schritte = Server-Schritte)', () => {
+    const ctx = createContext(false)
+    const state = new ArenaState()
+    const p = addPlayer(state, 'a', 1400, 800)
+    initPlayer(ctx, 'a', { x: 1400, y: 800 })
+    // Zwei Inputs treffen im selben Tick ein.
+    applyInput(ctx, state, 'a', input(0, 1, 0))
+    applyInput(ctx, state, 'a', input(1, 1, 0))
+    update(ctx, state)
+    expect(p.ackSeq).toBe(0)
+    const step = PLAYER_SPEED / TICK_RATE
+    expect(p.x).toBeCloseTo(1400 + step, 5)
+    update(ctx, state)
+    expect(p.ackSeq).toBe(1)
+    expect(p.x).toBeCloseTo(1400 + 2 * step, 5)
+    // Kein neuer Input: kein ungeplanter Extra-Schritt.
+    update(ctx, state)
+    expect(p.x).toBeCloseTo(1400 + 2 * step, 5)
+  })
+
+  it('Boost-Feld: Spieler wird schneller und der Boost laeuft ab', () => {
+    const ctx = createContext(false)
+    const state = new ArenaState()
+    const pad = BOOST_PADS[0]!
+    const p = addPlayer(state, 'a', pad.x, pad.y)
+    initPlayer(ctx, 'a', { x: pad.x, y: pad.y })
+    applyInput(ctx, state, 'a', input(0, 0, -1))
+    update(ctx, state)
+    expect(p.boost).toBeGreaterThan(0)
+    const y1 = p.y
+    applyInput(ctx, state, 'a', input(1, 0, -1))
+    update(ctx, state)
+    expect(y1 - p.y).toBeCloseTo((PLAYER_SPEED / TICK_RATE) * BOOST_SPEED_MULT, 5)
+    // Feld verlassen, dann stehen bleiben: Boost laeuft aus.
+    for (let i = 0; i < BOOST_TICKS + 20; i++) {
+      applyInput(ctx, state, 'a', input(2 + i, 0, i < 12 ? -1 : 0))
+      update(ctx, state)
+    }
+    expect(p.boost).toBe(0)
   })
 })
