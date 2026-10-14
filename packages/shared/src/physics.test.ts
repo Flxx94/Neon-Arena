@@ -41,6 +41,6 @@ describe('physics (M2)', () => {
   })
 
   it('ARENA_WIDTH bleibt Export-vertraeglich', () => {
-    expect(ARENA_WIDTH).toBe(1600)
+    expect(ARENA_WIDTH).toBe(2800)
   })
 })

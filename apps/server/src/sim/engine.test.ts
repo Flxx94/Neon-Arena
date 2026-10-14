@@ -35,8 +35,8 @@ describe('engine (M2)', () => {
   it('Fire-Rate: Schuesse im selben Intervall verfallen', () => {
     const ctx = createContext(false)
     const state = new ArenaState()
-    addPlayer(state, 'a', 800, 450)
-    initPlayer(ctx, 'a', { x: 800, y: 450 })
+    addPlayer(state, 'a', 1400, 800)
+    initPlayer(ctx, 'a', { x: 1400, y: 800 })
 
     applyInput(ctx, state, 'a', input(0, 0, 0, 0, true))
     update(ctx, state)
@@ -57,7 +57,7 @@ describe('engine (M2)', () => {
   it('Wand-Clamp: kein Durchdringen', () => {
     const ctx = createContext(false)
     const state = new ArenaState()
-    const p = addPlayer(state, 'a', ARENA_WIDTH - PLAYER_RADIUS - 1, 450)
+    const p = addPlayer(state, 'a', ARENA_WIDTH - PLAYER_RADIUS - 1, 800)
     initPlayer(ctx, 'a', { x: p.x, y: p.y })
     for (let i = 0; i < 30; i++) {
       applyInput(ctx, state, 'a', input(i, 1, 0))
@@ -82,10 +82,10 @@ describe('engine (M2)', () => {
   it('Kill -> Respawn nach 3 s mit vollem HP', () => {
     const ctx = createContext(false)
     const state = new ArenaState()
-    addPlayer(state, 'shooter', 700, 450)
-    const victim = addPlayer(state, 'victim', 900, 450)
-    initPlayer(ctx, 'shooter', { x: 700, y: 450 })
-    initPlayer(ctx, 'victim', { x: 900, y: 450 })
+    addPlayer(state, 'shooter', 1300, 800)
+    const victim = addPlayer(state, 'victim', 1500, 800)
+    initPlayer(ctx, 'shooter', { x: 1300, y: 800 })
+    initPlayer(ctx, 'victim', { x: 1500, y: 800 })
     // Spawn-Schutz umgehen (eigener Testfall prueft ihn separat).
     ctx.timers.get('victim')!.protectedUntil = -1
 
@@ -115,10 +115,10 @@ describe('engine (M2)', () => {
   it('Spawn-Schutz: frischer Spieler nimmt keinen Schaden', () => {
     const ctx = createContext(false)
     const state = new ArenaState()
-    addPlayer(state, 'shooter', 700, 450)
-    const victim = addPlayer(state, 'victim', 800, 450)
-    initPlayer(ctx, 'shooter', { x: 700, y: 450 })
-    initPlayer(ctx, 'victim', { x: 800, y: 450 })
+    addPlayer(state, 'shooter', 1300, 800)
+    const victim = addPlayer(state, 'victim', 1400, 800)
+    initPlayer(ctx, 'shooter', { x: 1300, y: 800 })
+    initPlayer(ctx, 'victim', { x: 1400, y: 800 })
     // Beide frisch -> victim geschuetzt (2 s).
     applyInput(ctx, state, 'shooter', input(0, 0, 0, 0, true))
     for (let i = 0; i < 20; i++) update(ctx, state)
@@ -153,10 +153,10 @@ describe('engine runden/pickups/bots (M3)', () => {
   it('Kill gibt 100 Punkte + Kill-Event', () => {
     const ctx = createContext(false)
     const state = new ArenaState()
-    addPlayer(state, 'shooter', 700, 450)
-    const victim = addPlayer(state, 'victim', 760, 450)
-    initPlayer(ctx, 'shooter', { x: 700, y: 450 })
-    initPlayer(ctx, 'victim', { x: 760, y: 450 })
+    addPlayer(state, 'shooter', 1300, 800)
+    const victim = addPlayer(state, 'victim', 1360, 800)
+    initPlayer(ctx, 'shooter', { x: 1300, y: 800 })
+    initPlayer(ctx, 'victim', { x: 1360, y: 800 })
     ctx.timers.get('victim')!.protectedUntil = -1
     victim.hp = 25
     applyInput(ctx, state, 'shooter', input(0, 0, 0, 0, true))
@@ -172,15 +172,15 @@ describe('engine runden/pickups/bots (M3)', () => {
   it('HP-Pickup heilt nur nach Server-Bestaetigung, voll ignoriert', () => {
     const ctx = createContext(false)
     const state = new ArenaState()
-    const p = addPlayer(state, 'a', 800, 450)
-    initPlayer(ctx, 'a', { x: 800, y: 450 })
+    const p = addPlayer(state, 'a', 1400, 800)
+    initPlayer(ctx, 'a', { x: 1400, y: 800 })
     p.hp = 50
     // Pickup direkt auf Spieler legen (Server-Sim, keine Client-Fakes).
     const pickup = new Pickup()
     pickup.id = 'u1'
     pickup.kind = 'hp'
-    pickup.x = 800
-    pickup.y = 450
+    pickup.x = 1400
+    pickup.y = 800
     state.pickups.push(pickup)
     update(ctx, state)
     expect(p.hp).toBe(100)
@@ -190,10 +190,10 @@ describe('engine runden/pickups/bots (M3)', () => {
   it('Shield absorbiert Schaden zuerst', () => {
     const ctx = createContext(false)
     const state = new ArenaState()
-    addPlayer(state, 'shooter', 700, 450)
-    const victim = addPlayer(state, 'victim', 760, 450)
-    initPlayer(ctx, 'shooter', { x: 700, y: 450 })
-    initPlayer(ctx, 'victim', { x: 760, y: 450 })
+    addPlayer(state, 'shooter', 1300, 800)
+    const victim = addPlayer(state, 'victim', 1360, 800)
+    initPlayer(ctx, 'shooter', { x: 1300, y: 800 })
+    initPlayer(ctx, 'victim', { x: 1360, y: 800 })
     ctx.timers.get('victim')!.protectedUntil = -1
     victim.shield = 50
     applyInput(ctx, state, 'shooter', input(0, 0, 0, 0, true))
@@ -206,8 +206,8 @@ describe('engine runden/pickups/bots (M3)', () => {
   it('Bots fuellen auf 4 auf, naehern sich und schiessen', () => {
     const ctx = createContext(true)
     const state = new ArenaState()
-    addPlayer(state, 'human', 200, 450)
-    initPlayer(ctx, 'human', { x: 200, y: 450 })
+    addPlayer(state, 'human', 200, 800)
+    initPlayer(ctx, 'human', { x: 200, y: 800 })
     update(ctx, state)
     expect(ctx.botIds.size).toBe(3)
 
@@ -229,8 +229,8 @@ describe('engine UI v3 (Skins, Aim, Bot-Ausweichen)', () => {
   it('Aim landet gerundet im State (Gegner-Blickrichtung fuer Clients)', () => {
     const ctx = createContext(false)
     const state = new ArenaState()
-    const p = addPlayer(state, 'a', 800, 450)
-    initPlayer(ctx, 'a', { x: 800, y: 450 })
+    const p = addPlayer(state, 'a', 1400, 800)
+    initPlayer(ctx, 'a', { x: 1400, y: 800 })
     applyInput(ctx, state, 'a', input(0, 0, 0, 1.2345))
     expect(p.aim).toBeCloseTo(1.25, 5)
     applyInput(ctx, state, 'a', input(1, 0, 0, -3))
@@ -240,8 +240,8 @@ describe('engine UI v3 (Skins, Aim, Bot-Ausweichen)', () => {
   it('Bots bekommen einen gueltigen Skin und zielen auf ihr Ziel', () => {
     const ctx = createContext(true)
     const state = new ArenaState()
-    addPlayer(state, 'human', 200, 450)
-    initPlayer(ctx, 'human', { x: 200, y: 450 })
+    addPlayer(state, 'human', 200, 800)
+    initPlayer(ctx, 'human', { x: 200, y: 800 })
     update(ctx, state)
     expect(ctx.botIds.size).toBe(3)
     for (const id of ctx.botIds) {

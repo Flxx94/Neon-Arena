@@ -415,11 +415,14 @@ function onPhaseChange(prev: string, next: string): void {
     const won = winner === myNick
     sfx.fanfare(won)
     sfx.setIntensity(0.1)
+    // Konfetti am unteren Bildschirmrand (Kamera folgt dem Spieler, Arena ist groesser als der Ausschnitt).
+    const { x: px, y: py } = prediction.predicted
+    const low = py + 320
     if (won) {
-      renderer.fx.confetti(ARENA_WIDTH * 0.3, ARENA_HEIGHT * 0.9, 80)
-      renderer.fx.confetti(ARENA_WIDTH * 0.7, ARENA_HEIGHT * 0.9, 80)
+      renderer.fx.confetti(px - 420, low, 80)
+      renderer.fx.confetti(px + 420, low, 80)
     } else {
-      renderer.fx.confetti(ARENA_WIDTH / 2, ARENA_HEIGHT * 0.95, 40)
+      renderer.fx.confetti(px, low, 40)
     }
   } else if (prev === 'end') {
     roundEl.hidden = true

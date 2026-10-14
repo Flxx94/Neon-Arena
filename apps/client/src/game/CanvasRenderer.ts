@@ -8,7 +8,13 @@ import {
   skinModel,
 } from '@neon-arena/shared'
 import { Effects } from './Effects.js'
-import { drawAmbient, buildStaticLayer, type View } from './map.js'
+import {
+  drawAmbient,
+  buildBackdropLayer,
+  buildWorldLayer,
+  WORLD_PAD,
+  type View,
+} from './map.js'
 import { drawModel } from './models.js'
 import { FONT, PALETTES, alpha, skinTone, type Palette } from './palette.js'
 import type { RenderHooks, RenderPlayer, RenderState, Renderer } from './Renderer.js'
@@ -73,8 +79,13 @@ export class CanvasRenderer implements Renderer {
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
   private view: View = { w: 1, h: 1, dpr: 1, scale: 1, ox: 0, oy: 0 }
-  private layer: HTMLCanvasElement | null = null
+  private backdrop: HTMLCanvasElement | null = null
+  private world: HTMLCanvasElement | null = null
   private layerKey = ''
+  /** Kamera (Weltkoordinaten der Bildschirmmitte), folgt dem eigenen Spieler weich. */
+  private camX = ARENA_WIDTH / 2
+  private camY = ARENA_HEIGHT / 2
+  private camInit = false
   private pal: Palette = PALETTES[currentTheme()]
   private anims = new Map<string, Anim>()
   private projs = new Map<string, ProjTrack>()
@@ -101,34 +112,79 @@ export class CanvasRenderer implements Renderer {
     const dpr = Math.min(devicePixelRatio || 1, 2)
     this.canvas.width = Math.max(1, Math.round(innerWidth * dpr))
     this.canvas.height = Math.max(1, Math.round(innerHeight * dpr))
-    const pad = Math.min(24, Math.max(6, innerWidth * 0.012))
-    const scale = Math.min(
-      (innerWidth - pad * 2) / ARENA_WIDTH,
-      (innerHeight - pad * 2) / ARENA_HEIGHT,
-    )
-    this.view = {
-      w: innerWidth,
-      h: innerHeight,
-      dpr,
-      scale,
-      ox: (innerWidth - ARENA_WIDTH * scale) / 2,
-      oy: (innerHeight - ARENA_HEIGHT * scale) / 2,
-    }
+    // Kamera-Zoom: sichtbarer Ausschnitt ca. 1600x900 Welteinheiten (auf kleinen Handys etwas
+    // enger, damit Figuren erkennbar bleiben); die Arena selbst ist deutlich groesser.
+    let scale = Math.max(innerWidth / 1600, innerHeight / 900)
+    if (Math.min(innerWidth, innerHeight) < 500) scale *= 1.25
+    this.view = { w: innerWidth, h: innerHeight, dpr, scale, ox: 0, oy: 0 }
     this.layerKey = ''
+    this.camInit = false
+    this.applyCamera()
+  }
+
+  /** Setzt view.ox/oy aus der Kamera; erlaubt etwas Rand ueber die Arena hinaus (Sockel sichtbar). */
+  private applyCamera(): void {
+    const v = this.view
+    const halfW = v.w / (2 * v.scale)
+    const halfH = v.h / (2 * v.scale)
+    const m = 48
+    this.camX = Math.min(Math.max(this.camX, halfW - m), ARENA_WIDTH - halfW + m)
+    this.camY = Math.min(Math.max(this.camY, halfH - m), ARENA_HEIGHT - halfH + m)
+    v.ox = v.w / 2 - this.camX * v.scale
+    v.oy = v.h / 2 - this.camY * v.scale
+  }
+
+  private followCamera(tx: number, ty: number, dt: number): void {
+    if (!this.camInit) {
+      this.camX = tx
+      this.camY = ty
+      this.camInit = true
+    } else {
+      const k = 1 - Math.exp(-dt * 10)
+      this.camX += (tx - this.camX) * k
+      this.camY += (ty - this.camY) * k
+    }
+    this.applyCamera()
   }
 
   worldToScreen(x: number, y: number): { x: number; y: number } {
     return { x: this.view.ox + x * this.view.scale, y: this.view.oy + y * this.view.scale }
   }
 
-  private ensureLayer(): HTMLCanvasElement {
+  private ensureLayers(): { backdrop: HTMLCanvasElement; world: HTMLCanvasElement } {
     const v = this.view
-    const key = `${v.w}x${v.h}@${v.dpr}:${this.pal.theme}`
-    if (!this.layer || key !== this.layerKey) {
-      this.layer = buildStaticLayer(this.pal, v)
+    const ls = Math.min(1.25, Math.max(0.5, v.scale * v.dpr))
+    const key = `${v.w}x${v.h}@${v.dpr}:${ls.toFixed(2)}:${this.pal.theme}`
+    if (!this.backdrop || !this.world || key !== this.layerKey) {
+      this.backdrop = buildBackdropLayer(this.pal, v)
+      this.world = buildWorldLayer(this.pal, ls)
       this.layerKey = key
     }
-    return this.layer
+    return { backdrop: this.backdrop, world: this.world }
+  }
+
+  /** Hintergrund + Arena mit Kamera-Transform zeichnen; setzt danach den Welt-Transform (inkl. Shake). */
+  private drawWorld(shakeX = 0, shakeY = 0): void {
+    const { ctx, view } = this
+    const { backdrop, world } = this.ensureLayers()
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.drawImage(backdrop, 0, 0)
+    const k = view.dpr * view.scale
+    ctx.setTransform(
+      k,
+      0,
+      0,
+      k,
+      view.dpr * view.ox + shakeX * k,
+      view.dpr * view.oy + shakeY * k,
+    )
+    ctx.drawImage(
+      world,
+      -WORLD_PAD,
+      -WORLD_PAD,
+      ARENA_WIDTH + WORLD_PAD * 2,
+      ARENA_HEIGHT + WORLD_PAD * 2,
+    )
   }
 
   private tickClock(): number {
@@ -142,20 +198,18 @@ export class CanvasRenderer implements Renderer {
   renderIdle(): void {
     const dt = this.tickClock()
     this.fx.update(dt)
-    const { ctx, view } = this
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.drawImage(this.ensureLayer(), 0, 0)
-    ctx.setTransform(
-      view.dpr * view.scale,
-      0,
-      0,
-      view.dpr * view.scale,
-      view.dpr * view.ox,
-      view.dpr * view.oy,
-    )
-    drawAmbient(ctx, this.pal, this.clock)
-    this.fx.draw(ctx, this.pal)
-    this.fx.drawTexts(ctx, this.pal)
+    // Menue-Hintergrund: Kamera driftet langsam ueber die Arena.
+    const t = this.clock * 0.12
+    this.camInit = true
+    this.camX = ARENA_WIDTH / 2 + Math.sin(t) * 520
+    this.camY = ARENA_HEIGHT / 2 + Math.sin(t * 1.7) * 220
+    this.applyCamera()
+    this.drawWorld()
+    drawAmbient(this.ctx, this.pal, this.clock)
+    this.fx.draw(this.ctx, this.pal)
+    this.fx.drawTexts(this.ctx, this.pal)
+    // Beim Spielstart soll die Kamera direkt auf den Spieler springen.
+    this.camInit = false
   }
 
   // ------------------------------------------------------------------------------------
@@ -362,12 +416,10 @@ export class CanvasRenderer implements Renderer {
     const { ctx, view, pal } = this
     const t = this.clock
 
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.drawImage(this.ensureLayer(), 0, 0)
-
+    const ownPlayer = state.players.find((p) => p.id === state.ownId)
+    if (ownPlayer?.alive) this.followCamera(ownPlayer.x, ownPlayer.y, dt)
     const sh = this.fx.shakeOffset()
-    const k = view.dpr * view.scale
-    ctx.setTransform(k, 0, 0, k, view.dpr * view.ox + sh.x * k, view.dpr * view.oy + sh.y * k)
+    this.drawWorld(sh.x, sh.y)
     drawAmbient(ctx, pal, t)
 
     this.drawPickups(ctx, t)
