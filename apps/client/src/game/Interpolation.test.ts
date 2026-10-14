@@ -17,6 +17,7 @@ function player(id: string, x: number, y: number) {
     isBot: false,
     skin: 0,
     aim: 0,
+    boost: 0,
   }
 }
 

@@ -28,3 +28,16 @@
   - Client: Kamera folgt dem eigenen Spieler (Zoom ~1600x900 Welteinheiten sichtbar, auf kleinen Handys enger), Arena einmal als Offscreen-Layer
     (max. 1.25 px/Einheit) + separater Viewport-Hintergrund. `worldToScreen` nutzt die Kamera (Maus-Zielen bleibt korrekt).
 - Konsequenz: Sim-Konstanten kommen weiter nur aus `shared`; `PROTOCOL_V` bleibt 1.
+
+## ADR-004: Boost-Felder + fluessige Eigenbewegung
+- Status: akzeptiert (2026-10-14)
+- Entscheidung:
+  - 8 symmetrische Boost-Felder (`BOOST_PADS`, shared): wer drueberlaeuft, ist `BOOST_TICKS` (2 s) lang `BOOST_SPEED_MULT` (x1.7) schneller;
+    auf dem Feld stehen frischt auf. Die Schrittfunktion `stepPlayer` (shared/physics) wird von Server-Sim UND Client-Prediction genutzt,
+    der Boost-Zaehler (`Player.boost`, uint8) ist additiv im State (PROTOCOL_V bleibt 1) und fliesst in die Reconciliation ein.
+  - Server verbraucht pro Tick genau EINEN Input aus einer Warteschlange (max. 6); ohne frischen Input steht der Spieler still statt
+    "den letzten Input zu wiederholen" -> Server und Prediction bleiben bei Netz-Jitter in Phase (vorher: periodische 1-Schritt-Korrekturen = Ruckeln).
+    Input-Toleranz 45/s (statt 35) gegen Frame-Hitches.
+  - Client: Input-/Prediction-Tick laeuft per Akkumulator im Render-Loop (nicht setInterval), die eigene Figur wird zwischen den 30-Hz-Schritten
+    interpoliert; Reconciliation-Fehler werden weich ausgeblendet (Snap ab 90 px); Frame-Zeit aus `document.timeline.currentTime` (vsync-genau).
+- Messung (Headless, simulierte 30-70 ms Latenz mit Jitter): Eigengeschwindigkeit konstant 165 px/s (stdev ~0 statt ~19 px/s).

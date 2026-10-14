@@ -237,6 +237,24 @@ export class Effects {
     }
   }
 
+  /** Boost-Nachleuchten: kurzlebige Punkte hinter einer schnellen Figur. */
+  trail(x: number, y: number, color: string): void {
+    this.add({
+      kind: 'dot',
+      x: x + this.rand(-5, 5),
+      y: y + this.rand(-5, 5),
+      vx: 0,
+      vy: 0,
+      life: 0.32,
+      max: 0.32,
+      size: this.rand(4, 7),
+      color,
+      drag: 1,
+      rot: 0,
+      vr: 0,
+    })
+  }
+
   /** Konfetti-Regen (Rundensieg). */
   confetti(x: number, y: number, count = 70): void {
     const colors = ['#ff5fa2', '#26d0ff', '#8dea2f', '#ffcf2e', '#9a6bff', '#ff8a2b']

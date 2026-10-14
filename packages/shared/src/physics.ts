@@ -1,4 +1,16 @@
-import { ARENA_HEIGHT, ARENA_WIDTH, type ObstacleRect } from './constants.js'
+import {
+  ARENA_HEIGHT,
+  ARENA_WIDTH,
+  BOOST_PADS,
+  BOOST_PAD_RADIUS,
+  BOOST_SPEED_MULT,
+  BOOST_TICKS,
+  OBSTACLES,
+  PLAYER_RADIUS,
+  PLAYER_SPEED,
+  TICK_RATE,
+  type ObstacleRect,
+} from './constants.js'
 
 export interface Vec {
   x: number
@@ -89,4 +101,30 @@ export function segmentHitsCircle(
   const ox = cx - px
   const oy = cy - py
   return ox * ox + oy * oy <= radius * radius
+}
+
+/** Steht der Kreis auf einem Boost-Feld? */
+export function onBoostPad(p: Vec): boolean {
+  const r = BOOST_PAD_RADIUS
+  for (const pad of BOOST_PADS) {
+    const dx = p.x - pad.x
+    const dy = p.y - pad.y
+    if (dx * dx + dy * dy <= r * r) return true
+  }
+  return false
+}
+
+/**
+ * Ein Bewegungs-Tick eines Spielers (Server-Sim UND Client-Prediction nutzen exakt dies).
+ * `boost` = verbleibende Boost-Ticks; Rueckgabe = neuer Wert. Boost wirkt ab dem Tick nach dem
+ * Betreten, wird auf dem Feld aufgefrischt und laeuft sonst pro Tick um 1 ab.
+ * Mutiert p.
+ */
+export function stepPlayer(p: Vec, boost: number, dx: number, dy: number): number {
+  const speed = (PLAYER_SPEED / TICK_RATE) * (boost > 0 ? BOOST_SPEED_MULT : 1)
+  p.x += dx * speed
+  p.y += dy * speed
+  resolveArena(p, PLAYER_RADIUS)
+  for (const obstacle of OBSTACLES) resolveRect(p, PLAYER_RADIUS, obstacle)
+  return onBoostPad(p) ? BOOST_TICKS : Math.max(0, boost - 1)
 }

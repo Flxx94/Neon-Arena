@@ -16,7 +16,6 @@ import {
   PICKUP_SPAWN_INTERVAL_MS,
   PLAYER_HP,
   PLAYER_RADIUS,
-  PLAYER_SPEED,
   PROJECTILE_DAMAGE,
   PROJECTILE_RADIUS,
   PROJECTILE_SPEED,
@@ -32,7 +31,7 @@ import {
   TICK_RATE,
   resolveArena,
   resolveCircle,
-  resolveRect,
+  stepPlayer,
   segmentHitsCircle,
   type PickupKind,
   type ValidatedInput,
@@ -52,8 +51,12 @@ export type SimEvent =
 
 export interface SimContext {
   tick: number
-  /** Letzter Input pro Spieler (wird jeden Tick angewendet). */
+  /** Aktuell wirksamer Input pro Spieler (zuletzt verbrauchter bzw. Bot-Input). */
   inputs: Map<string, ValidatedInput>
+  /** Wartende Client-Inputs pro Spieler: pro Tick wird genau EIN Input verbraucht (= 1 Client-Schritt). */
+  inputQueue: Map<string, ValidatedInput[]>
+  /** Spieler ohne frischen Input in diesem Tick: bewegen sich nicht (kein ungeplanter Extra-Schritt). */
+  stalled: Set<string>
   /** Positions-Historie pro Spieler (neueste zuletzt, fuer Server-Rewind). */
   histories: Map<string, { x: number; y: number }[]>
   timers: Map<string, PlayerTimers>
@@ -76,6 +79,8 @@ export function createContext(botsEnabled = true): SimContext {
   return {
     tick: 0,
     inputs: new Map(),
+    inputQueue: new Map(),
+    stalled: new Set(),
     histories: new Map(),
     timers: new Map(),
     projectileTtl: new Map(),
@@ -107,6 +112,8 @@ export function initPlayer(
 
 export function removePlayer(ctx: SimContext, state: ArenaState, sessionId: string): void {
   ctx.inputs.delete(sessionId)
+  ctx.inputQueue.delete(sessionId)
+  ctx.stalled.delete(sessionId)
   ctx.histories.delete(sessionId)
   ctx.timers.delete(sessionId)
   ctx.botIds.delete(sessionId)
@@ -138,7 +145,10 @@ function insideObstacle(x: number, y: number, margin: number): boolean {
   )
 }
 
-/** Validierten Input ablegen; wird im naechsten Tick angewendet (inkl. ackSeq). */
+/** Maximal gepufferte Inputs pro Spieler (~200 ms); aeltere werden verworfen (Client repliziert den Rest). */
+const MAX_QUEUED_INPUTS = 6
+
+/** Validierten Input einreihen; pro Tick wird einer angewendet (inkl. ackSeq). */
 export function applyInput(
   ctx: SimContext,
   state: ArenaState,
@@ -147,9 +157,34 @@ export function applyInput(
 ): void {
   const player = state.players.get(sessionId)
   if (!player) return
-  ctx.inputs.set(sessionId, input)
-  player.ackSeq = input.seq
+  let queue = ctx.inputQueue.get(sessionId)
+  if (!queue) {
+    queue = []
+    ctx.inputQueue.set(sessionId, queue)
+  }
+  queue.push(input)
+  if (queue.length > MAX_QUEUED_INPUTS) queue.shift()
   player.aim = quantizeAim(input.aim)
+}
+
+/**
+ * Pro Tick genau einen wartenden Input je Spieler verbrauchen. Ohne frischen Input bleibt der
+ * Spieler stehen ("stalled"): ein spaeter eintreffender Input zaehlt dann trotzdem nur einen Schritt,
+ * Server und Client-Prediction bleiben in Phase (kein Rubber-Banding bei Netz-Jitter).
+ */
+function consumeInputs(ctx: SimContext, state: ArenaState): void {
+  ctx.stalled.clear()
+  for (const [id, queue] of ctx.inputQueue) {
+    const player = state.players.get(id)
+    if (!player) continue
+    const next = queue.shift()
+    if (next) {
+      ctx.inputs.set(id, next)
+      player.ackSeq = next.seq
+    } else if (ctx.inputs.has(id)) {
+      ctx.stalled.add(id)
+    }
+  }
 }
 
 /** Aim fuer den State gerundet (0.05 rad ~ 3 Grad): weniger Delta-Traffic, optisch identisch. */
@@ -161,21 +196,21 @@ function quantizeAim(aim: number): number {
 export function update(ctx: SimContext, state: ArenaState): void {
   ctx.tick++
   const dt = 1 / TICK_RATE
-  const step = PLAYER_SPEED * dt
 
+  consumeInputs(ctx, state)
   updateRound(ctx, state)
   if (state.phase === 'play') {
     handleRespawns(ctx, state)
     thinkBots(ctx, state)
     maintainBots(ctx, state)
-    movePlayers(ctx, state, step)
+    movePlayers(ctx, state)
     resolvePlayerCollisions(state)
     fireWeapons(ctx, state)
     updateProjectiles(ctx, state, dt)
     updatePickups(ctx, state)
   } else {
     // End-Screen: weiterlaufen lassen, aber kein Schaden, keine neuen Pickups.
-    movePlayers(ctx, state, step)
+    movePlayers(ctx, state)
     updateProjectiles(ctx, state, dt)
   }
   pushHistories(ctx, state)
@@ -222,6 +257,7 @@ function startRound(ctx: SimContext, state: ArenaState): void {
     player.x = spawn.x
     player.y = spawn.y
     player.hp = PLAYER_HP
+    player.boost = 0
     player.shield = 0
     player.alive = true
     player.kills = 0
@@ -253,6 +289,7 @@ function handleRespawns(ctx: SimContext, state: ArenaState): void {
     player.x = spawn.x
     player.y = spawn.y
     player.hp = PLAYER_HP
+    player.boost = 0
     player.shield = 0
     player.alive = true
     timers.protectedUntil = ctx.tick + SPAWN_PROTECTION_SECONDS * TICK_RATE
@@ -260,17 +297,13 @@ function handleRespawns(ctx: SimContext, state: ArenaState): void {
   }
 }
 
-function movePlayers(ctx: SimContext, state: ArenaState, step: number): void {
+function movePlayers(ctx: SimContext, state: ArenaState): void {
   for (const [id, player] of state.players) {
     if (!player.alive) continue
     const input = ctx.inputs.get(id)
-    if (!input) continue
-    player.x += input.dx * step
-    player.y += input.dy * step
-    resolveArena(player, PLAYER_RADIUS)
-    for (const obstacle of OBSTACLES) {
-      resolveRect(player, PLAYER_RADIUS, obstacle)
-    }
+    if (!input || ctx.stalled.has(id)) continue
+    // Gleiche Schrittfunktion wie die Client-Prediction (shared/physics): Boost inklusive.
+    player.boost = stepPlayer(player, player.boost, input.dx, input.dy)
   }
 }
 

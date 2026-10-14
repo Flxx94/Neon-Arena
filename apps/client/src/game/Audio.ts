@@ -320,6 +320,15 @@ export class SoundFX {
   }
 
   /** Pickup: HP = warm aufsteigend, Shield = metallisch. */
+  /** Boost-Feld: aufsteigender Sweep + Luftstoss. */
+  boost(sp?: Spatial): void {
+    if (!this.ready()) return
+    const dest = this.out(sp)
+    this.tone({ from: 260, to: 1500, dur: 0.32, type: 'sawtooth', gain: 0.1, dest, reverb: 0.2 })
+    this.tone({ from: 520, to: 3000, dur: 0.3, type: 'square', gain: 0.05, dest, detune: 12 })
+    this.noise({ dur: 0.28, filter: 'highpass', from: 800, to: 5200, gain: 0.12, dest })
+  }
+
   pickup(kind: string): void {
     if (!this.ready()) return
     const t = this.ctx!.currentTime
