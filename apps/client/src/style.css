@@ -77,6 +77,8 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
@@ -1046,6 +1048,166 @@ input[type="range"]::-moz-range-thumb {
 }
 input[type="range"]:hover::-webkit-slider-thumb {
   transform: scale(1.15);
+}
+
+/* --------------------------------------------------------------------------
+   Touch-Steuerung (Joystick links unten, Schuss-Button rechts unten)
+   Bewusst grossteils transparent, damit das Spielfeld darunter sichtbar bleibt.
+   -------------------------------------------------------------------------- */
+#touch,
+#rotate-hint {
+  display: none;
+}
+body.playing {
+  touch-action: none;
+}
+body.touch.playing #touch {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
+}
+#touch .zone {
+  --size: clamp(118px, 26vmin, 176px);
+  position: absolute;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  width: calc(var(--size) * 1.35);
+  height: calc(var(--size) * 1.35);
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
+#stick-zone {
+  left: calc(10px + env(safe-area-inset-left));
+}
+#fire-zone {
+  right: calc(10px + env(safe-area-inset-right));
+}
+#stick-base {
+  position: relative;
+  width: var(--size);
+  height: var(--size);
+  display: grid;
+  place-items: center;
+  border: var(--bw) solid var(--ink);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--panel) 30%, transparent);
+  box-shadow: inset 0 0 0 6px color-mix(in srgb, var(--panel) 20%, transparent);
+  opacity: 0.4;
+  transition: opacity 160ms;
+}
+#stick-knob {
+  width: 46%;
+  height: 46%;
+  border: var(--bw) solid var(--ink);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent-2) 70%, transparent);
+  transition: transform 160ms var(--pop);
+}
+#stick-zone.active #stick-base {
+  opacity: 0.72;
+}
+#stick-zone.active #stick-knob {
+  transition: none;
+}
+#fire-btn {
+  position: relative;
+  width: calc(var(--size) * 0.74);
+  height: calc(var(--size) * 0.74);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--accent-ink);
+  border: var(--bw) solid var(--ink);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 4px 0 color-mix(in srgb, var(--ink) 55%, transparent);
+  opacity: 0.45;
+  pointer-events: none;
+  transition: opacity 160ms, transform 120ms var(--pop), box-shadow 120ms;
+}
+#fire-btn svg {
+  width: 48%;
+  height: 48%;
+  stroke-width: 2.6;
+}
+#fire-zone.active #fire-btn {
+  opacity: 0.8;
+  transform: scale(0.92) translateY(3px);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--ink) 55%, transparent);
+}
+#fire-btn.aiming {
+  outline: 3px dashed var(--accent-2);
+  outline-offset: 6px;
+}
+
+/* Touch-Layout: Ecken unten gehoeren den Steuerelementen, HUD wandert nach oben. */
+body.touch.playing #hint {
+  display: none;
+}
+body.touch.playing #vitals {
+  top: calc(10px + env(safe-area-inset-top));
+  bottom: auto;
+  left: calc(10px + env(safe-area-inset-left));
+  padding: 6px 12px 6px 8px;
+}
+body.touch.playing #hud-avatar {
+  display: none;
+}
+body.touch.playing #hpbar,
+body.touch.playing #shieldbar {
+  width: clamp(96px, 16vw, 150px);
+}
+body.touch.playing #killfeed {
+  top: 84px;
+  left: calc(10px + env(safe-area-inset-left));
+  transform-origin: top left;
+  scale: 0.85;
+}
+body.touch.playing #scoreboard {
+  top: calc(10px + env(safe-area-inset-top));
+  right: calc(10px + env(safe-area-inset-right));
+  width: 124px;
+  padding: 6px 8px 4px;
+}
+body.touch.playing .sb-row:nth-child(n + 6) {
+  display: none;
+}
+body.touch.playing #tools {
+  top: auto;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  gap: 8px;
+}
+body.touch.playing #tools .icon-btn {
+  width: 38px;
+  height: 38px;
+  opacity: 0.7;
+}
+@media (orientation: portrait) {
+  body.touch.playing #hpbar,
+  body.touch.playing #shieldbar {
+    width: 62px;
+  }
+  body.touch.playing #scoreboard {
+    width: 108px;
+  }
+  body.touch.playing #rotate-hint {
+    display: inline-flex;
+    position: fixed;
+    top: 84px;
+    left: 50%;
+    z-index: 13;
+    transform: translateX(-50%);
+    font-size: 13px;
+    pointer-events: none;
+    animation: hint 7s 0.4s var(--snap) both;
+  }
 }
 
 /* --------------------------------------------------------------------------
