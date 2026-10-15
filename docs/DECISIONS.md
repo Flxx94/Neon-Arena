@@ -42,6 +42,22 @@
     interpoliert; Reconciliation-Fehler werden weich ausgeblendet (Snap ab 90 px); Frame-Zeit aus `document.timeline.currentTime` (vsync-genau).
 - Messung (Headless, simulierte 30-70 ms Latenz mit Jitter): Eigengeschwindigkeit konstant 165 px/s (stdev ~0 statt ~19 px/s).
 
+## ADR-005: Accounts (Email + Passwort), Login-Seite und Lobby
+- Status: akzeptiert (2026-10-15)
+- Entscheidung:
+  - Einstieg ist jetzt eine Login-Seite (Tabs Anmelden / Registrieren / Gast). Nach dem Login kommt die **Lobby**: Figur + Farbe per Pfeil-Buttons,
+    Spielername aus dem Konto (kein Namensfeld mehr), Button "Match beitreten". Der Look wird am Konto gespeichert (`PATCH /me/skin`).
+  - Server: `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `PATCH /me/skin`, `GET /me` (erweitert um `isGuest`, `skin`, `email`).
+    Passwoerter mit **scrypt** (Node-eigen, N=2^15, Salt pro Konto, Parameter im Hash), Konstantzeit-Vergleich, Dummy-Hash bei unbekannter Email
+    (kein Timing-Orakel), generische 401 `INVALID_CREDENTIALS`. Email normalisiert (trim + lowercase), Passwort 8-128 Zeichen.
+  - Session bleibt der bestehende httpOnly-Cookie (JWT, `na_guest`); Konten 7 Tage, Gaeste 24 h. Kein Token/Passwort im `localStorage`.
+  - Rate-Limits: Register 10 / 10 min / IP, Login 20 / min / IP und 8 / 5 min / Email.
+  - Der Spielername im Raum kommt aus der **Session**, nicht mehr aus den Join-Optionen (Konto-Namen koennen nicht gefaelscht werden).
+  - Prisma: `User.email` (unique), `passwordHash`, `skin` (Migration `20261015090000_accounts`). Ohne DB (`DB_ENABLED=false`) laufen Konten
+    **nur im Speicher** und sind nach einem Server-Neustart weg -> fuer dauerhafte Konten Postgres anbinden (docs/DEPLOY-FREE.md).
+- Bewusst nicht (P2): Email-Verifizierung, Passwort-Reset, OAuth, Konto loeschen. Registrierung ohne Bestaetigung ist ok, solange keine Mails verschickt werden.
+- Konsequenz: `PROTOCOL_V` bleibt 1; Gast-Flow (`/auth/guest`) bleibt unveraendert nutzbar.
+
 ## ADR-006: Charakter-Klassen (Werte + eine Attacke je Figur)
 - Status: akzeptiert (2026-10-15)
 - Entscheidung:

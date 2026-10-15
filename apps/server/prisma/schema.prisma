@@ -7,13 +7,16 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// MVP: nur Gaeste (M4-02). Accounts/OAuth kommen in P2-03.
+// Gaeste (M4-02) und Accounts (Email + Passwort, ADR-005). Gaeste haben email/passwordHash = NULL.
 model User {
-  id        String        @id @default(uuid())
-  nickname  String
-  isGuest   Boolean       @default(true)
-  createdAt DateTime      @default(now())
-  matches   MatchPlayer[]
+  id           String        @id @default(uuid())
+  nickname     String
+  isGuest      Boolean       @default(true)
+  email        String?       @unique
+  passwordHash String?
+  skin         Int           @default(0)
+  createdAt    DateTime      @default(now())
+  matches      MatchPlayer[]
 }
 
 model Match {

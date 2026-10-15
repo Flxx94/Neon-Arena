@@ -105,3 +105,10 @@ git push   # Render + Pages bauen automatisch neu (Blueprint erkennt render.yaml
 ## Zurück auf lokal (falls nötig)
 
 `docs/DEPLOY.md` (Docker Compose, LAN-Playtest) bleibt unverändert gültig. Vor `pnpm dev`/Playwright: Prod-Stack stoppen (`docker compose -f infra/docker-compose.prod.yml down`), sonst Port-Kollision 5173/2567.
+
+
+## Konten (Email + Passwort) brauchen eine Datenbank
+Mit `DB_ENABLED=false` (Standard dieser Anleitung) leben Konten nur im Server-Speicher: nach jedem Neustart / Free-Tier-Schlaf von Render sind sie weg,
+und Spieler muessen sich neu registrieren. Fuer dauerhafte Konten: kostenlose Postgres-DB anlegen (z. B. Neon oder Render Postgres), `DB_ENABLED=true` und
+`DATABASE_URL=postgresql://…?sslmode=require` setzen und neu deployen – die Migration (`prisma migrate deploy`) legt die Account-Spalten automatisch an.
+Gaeste funktionieren weiterhin ohne DB.

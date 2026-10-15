@@ -31,6 +31,16 @@ import {
 } from './net/client.js'
 import { ModelPreview } from './ui/preview.js'
 import { loadProfile, saveProfile, settings, type ThemePref } from './ui/settings.js'
+import {
+  AuthError,
+  fetchMe,
+  guestLogin,
+  login,
+  logout,
+  register,
+  saveSkin,
+  type Identity,
+} from './net/auth.js'
 import { currentTheme, initTheme, toggleTheme } from './ui/theme.js'
 
 initTheme()
@@ -40,7 +50,18 @@ const canvas = $<HTMLCanvasElement>('game')
 const debugEl = $<HTMLDivElement>('debug')
 const joinEl = $<HTMLDivElement>('join')
 const joinForm = $<HTMLFormElement>('join-card')
-const nickInput = $<HTMLInputElement>('nickname')
+const authForm = $<HTMLFormElement>('auth-card')
+const authTabs = $<HTMLDivElement>('auth-tabs')
+const authEmail = $<HTMLInputElement>('auth-email')
+const authNick = $<HTMLInputElement>('auth-nickname')
+const authPass = $<HTMLInputElement>('auth-password')
+const authHint = $<HTMLParagraphElement>('auth-hint')
+const authError = $<HTMLParagraphElement>('auth-error')
+const authSubmit = $<HTMLButtonElement>('auth-submit')
+const authReload = $<HTMLButtonElement>('auth-reload')
+const bootEl = $<HTMLParagraphElement>('boot')
+const lobbyName = $<HTMLSpanElement>('lobby-name')
+const lobbyBadge = $<HTMLSpanElement>('lobby-badge')
 const playBtn = $<HTMLButtonElement>('play')
 const joinError = $<HTMLParagraphElement>('join-error')
 const reloadBtn = $<HTMLButtonElement>('reload')
@@ -237,7 +258,6 @@ buildLogo()
 const profile = loadProfile()
 let model = profile.skin >= 0 ? skinModel(profile.skin) : Math.floor(Math.random() * MODEL_COUNT)
 let color = profile.skin >= 0 ? skinColor(profile.skin) : Math.floor(Math.random() * COLOR_COUNT)
-if (profile.nickname) nickInput.value = profile.nickname
 
 const preview = new ModelPreview($<HTMLCanvasElement>('preview'))
 const hudAvatar = new ModelPreview($<HTMLCanvasElement>('hud-avatar'), 1)
@@ -289,7 +309,19 @@ function syncClassInfo(): void {
   }
 }
 
+let skinSaveTimer: number | undefined
+/** Lobby-Look nach kurzer Pause am Konto/der Session speichern (nicht bei jedem Klick). */
+function persistLook(): void {
+  if (!identity) return
+  window.clearTimeout(skinSaveTimer)
+  skinSaveTimer = window.setTimeout(() => {
+    saveProfile(identity?.nickname ?? '', currentSkin())
+    void saveSkin(currentSkin())
+  }, 500)
+}
+
 function syncPicker(bump: boolean): void {
+  if (bump) persistLook()
   preview.setSkin(currentSkin(), bump)
   modelName.textContent = MODEL_NAMES[model] ?? ''
   syncClassInfo()
@@ -342,7 +374,181 @@ addEventListener('pointermove', (e) => preview.lookAt(e.clientX, e.clientY))
 syncPicker(false)
 
 reloadBtn.addEventListener('click', () => location.reload())
+authReload.addEventListener('click', () => location.reload())
 joinForm.addEventListener('submit', (e) => e.preventDefault())
+
+// ---------------------------------------------------------------------------------------
+// Zugang: Anmelden / Registrieren / Gast  ->  Lobby
+// ---------------------------------------------------------------------------------------
+type AuthMode = 'login' | 'register' | 'guest'
+let identity: Identity | null = null
+let authMode: AuthMode = 'login'
+
+const MODE_TEXT: Record<AuthMode, { submit: string; hint: string }> = {
+  login: { submit: 'Anmelden', hint: '' },
+  register: {
+    submit: 'Konto erstellen',
+    hint: 'Dein Look und dein Name werden an dein Konto gebunden.',
+  },
+  guest: {
+    submit: 'Als Gast starten',
+    hint: 'Ohne Konto: Dein Fortschritt wird nicht dauerhaft gespeichert.',
+  },
+}
+
+function setAuthMode(mode: AuthMode): void {
+  authMode = mode
+  authTabs.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+    b.setAttribute('aria-selected', String(b.dataset.mode === mode))
+  })
+  authForm.querySelectorAll<HTMLElement>('[data-for]').forEach((el) => {
+    el.hidden = !(el.dataset.for ?? '').split(' ').includes(mode)
+  })
+  authSubmit.textContent = MODE_TEXT[mode].submit
+  authHint.textContent = MODE_TEXT[mode].hint
+  authPass.autocomplete = mode === 'register' ? 'new-password' : 'current-password'
+  authError.textContent = ''
+  authForm.querySelectorAll('.invalid').forEach((el) => el.classList.remove('invalid'))
+}
+
+function flagInvalid(el: HTMLInputElement, message: string): void {
+  authError.textContent = message
+  el.classList.remove('invalid')
+  void el.offsetWidth
+  el.classList.add('invalid')
+  el.focus()
+  sfx.unlock()
+  sfx.uiError()
+}
+
+type View = 'boot' | 'auth' | 'lobby'
+function showView(view: View): void {
+  bootEl.hidden = view !== 'boot'
+  authForm.hidden = view !== 'auth'
+  joinForm.hidden = view !== 'lobby'
+  if (view === 'auth') (authMode === 'guest' ? authNick : authEmail).focus({ preventScroll: true })
+}
+
+/** Lobby mit der Identitaet befuellen (Name, Konto/Gast-Badge, gespeicherter Look). */
+function enterLobby(who: Identity, restoreLook: boolean): void {
+  identity = who
+  lobbyName.textContent = who.nickname
+  lobbyBadge.textContent = who.isGuest ? 'Gast' : 'Konto'
+  lobbyBadge.classList.toggle('guest', who.isGuest)
+  if (restoreLook && !who.isGuest) {
+    model = skinModel(who.skin)
+    color = skinColor(who.skin)
+    syncPicker(false)
+  }
+  joinError.textContent = ''
+  showView('lobby')
+}
+
+function backToAuth(message = ''): void {
+  identity = null
+  authPass.value = ''
+  authError.textContent = message
+  showView('auth')
+}
+
+authTabs.addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-mode]')
+  if (b) setAuthMode(b.dataset.mode as AuthMode)
+})
+
+authForm.addEventListener('submit', (e) => {
+  e.preventDefault()
+  const email = authEmail.value.trim()
+  const nickname = authNick.value.trim()
+  const password = authPass.value
+  // Fruehes Feedback; der Server validiert erneut (Zod).
+  if (authMode !== 'guest') {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      flagInvalid(authEmail, 'Bitte eine gültige E-Mail-Adresse eingeben.')
+      return
+    }
+    if (password.length < (authMode === 'register' ? 8 : 1)) {
+      flagInvalid(
+        authPass,
+        authMode === 'register' ? 'Das Passwort braucht mindestens 8 Zeichen.' : 'Bitte Passwort eingeben.',
+      )
+      return
+    }
+  }
+  if (authMode !== 'login' && !/^[a-zA-Z0-9_-]{1,16}$/.test(nickname)) {
+    flagInvalid(authNick, 'Spielername: 1–16 Zeichen, nur a-z 0-9 _ -')
+    return
+  }
+  authError.textContent = ''
+  authSubmit.disabled = true
+  const label = authSubmit.textContent
+  authSubmit.textContent = 'Einen Moment …'
+  sfx.unlock()
+  const request =
+    authMode === 'login'
+      ? login(email, password)
+      : authMode === 'register'
+        ? register(email, password, nickname)
+        : guestLogin(nickname)
+  void request
+    .then((who) => {
+      authPass.value = ''
+      if (authMode === 'register') {
+        // Neues Konto: mit zufaelligem Look starten und ihn gleich am Konto merken.
+        model = Math.floor(Math.random() * MODEL_COUNT)
+        color = Math.floor(Math.random() * COLOR_COUNT)
+        syncPicker(false)
+        void saveSkin(currentSkin())
+        enterLobby(who, false)
+      } else if (authMode === 'guest') {
+        const saved = loadProfile().skin
+        if (saved >= 0) {
+          model = skinModel(saved)
+          color = skinColor(saved)
+          syncPicker(false)
+        }
+        enterLobby(who, false)
+      } else {
+        enterLobby(who, true)
+      }
+      sfx.uiStart()
+    })
+    .catch((err: unknown) => {
+      const msg = err instanceof AuthError ? err.message : 'Anmeldung fehlgeschlagen.'
+      authError.textContent = msg
+      if (err instanceof AuthError && err.code === 'EMAIL_TAKEN') setAuthMode('login')
+      authError.textContent = msg
+      sfx.uiError()
+    })
+    .finally(() => {
+      authSubmit.disabled = false
+      authSubmit.textContent = authMode === 'login' ? MODE_TEXT.login.submit : label
+    })
+})
+
+$<HTMLButtonElement>('logout').addEventListener('click', () => {
+  window.clearTimeout(skinSaveTimer)
+  void saveSkin(currentSkin()).then(() => logout())
+  backToAuth()
+})
+
+// Start: besteht noch eine Session (Cookie)? -> direkt in die Lobby, sonst Login.
+setAuthMode('login')
+showView('boot')
+const slowBoot = window.setTimeout(() => {
+  bootEl.textContent = 'Server wacht auf … das kann kurz dauern'
+}, 3500)
+void fetchMe().then((me) => {
+  window.clearTimeout(slowBoot)
+  if (me.state === 'ok') {
+    enterLobby(me.identity, true)
+  } else {
+    showView('auth')
+    if (me.state === 'offline') {
+      authError.textContent = 'Server nicht erreichbar – bitte später erneut versuchen.'
+    }
+  }
+})
 
 // ---------------------------------------------------------------------------------------
 // Hilfsfunktionen HUD
@@ -539,26 +745,19 @@ function enterIdle(): void {
 }
 
 playBtn.addEventListener('click', () => {
-  const nickname = nickInput.value.trim()
-  // Hinweis: Server validiert erneut (Zod); das hier ist nur Frueh-Feedback.
-  if (!/^[a-zA-Z0-9_-]{1,16}$/.test(nickname)) {
-    joinError.textContent = 'Nickname: 1–16 Zeichen, nur a-z 0-9 _ -'
-    nickInput.classList.remove('invalid')
-    void nickInput.offsetWidth
-    nickInput.classList.add('invalid')
-    sfx.unlock()
-    sfx.uiError()
+  if (!identity) {
+    backToAuth('Bitte zuerst anmelden.')
     return
   }
-  nickInput.classList.remove('invalid')
+  const who = identity
   joinError.textContent = ''
   playBtn.disabled = true
   playBtn.textContent = 'Verbinde …'
   sfx.unlock()
-  saveProfile(nickname, currentSkin())
   const skin = currentSkin()
+  saveProfile(who.nickname, skin)
   void net
-    .join(nickname, skin, {
+    .join(who, skin, {
       onSnapshot: (snapshot) => {
         players = snapshot.players
         projectiles = snapshot.projectiles
@@ -584,18 +783,18 @@ playBtn.addEventListener('click', () => {
         if (!connected && joinEl.hidden === false) {
           joinError.textContent = msg
           playBtn.disabled = false
-          playBtn.textContent = 'Spielen'
+          playBtn.textContent = 'Match beitreten'
           return
         }
         enterIdle()
         joinError.textContent = msg
         playBtn.disabled = false
-        playBtn.textContent = 'Spielen'
+        playBtn.textContent = 'Match beitreten'
       },
     })
     .then(() => {
       connected = true
-      myNick = nickname
+      myNick = who.nickname
       streak = 0
       activity = 0
       phase = 'play'
@@ -608,7 +807,7 @@ playBtn.addEventListener('click', () => {
       timerBox.hidden = false
       scoreEl.hidden = false
       hudAvatar.setSkin(skin)
-      playBtn.textContent = 'Spielen'
+      playBtn.textContent = 'Match beitreten'
       sfx.uiStart()
       sfx.setMusic(true)
       showToast('Viel Erfolg!', skinTone(skinColor(skin)).base)
@@ -619,12 +818,15 @@ playBtn.addEventListener('click', () => {
       if (msg.includes('PROTOCOL_MISMATCH')) {
         joinError.textContent = 'Neue Version verfügbar – bitte neu laden.'
         reloadBtn.hidden = false
+      } else if (msg.includes('INVALID_GUEST')) {
+        // Session abgelaufen (z. B. Server-Neustart): zurueck zur Anmeldung.
+        backToAuth('Deine Sitzung ist abgelaufen – bitte erneut anmelden.')
       } else {
         joinError.textContent = msg
       }
       sfx.uiError()
       playBtn.disabled = false
-      playBtn.textContent = 'Spielen'
+      playBtn.textContent = 'Match beitreten'
     })
 })
 

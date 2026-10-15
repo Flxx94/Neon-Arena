@@ -117,7 +117,45 @@
         </h1>
         <p class="tagline">Schnelle Arena-Duelle · bis zu 12 Spieler · 3 Minuten pro Runde</p>
 
-        <form id="join-card" class="card ui" autocomplete="off">
+        <p id="boot" class="chip" role="status">Verbinde mit Server …</p>
+
+        <!-- Anmelden / Registrieren / Gast -->
+        <form id="auth-card" class="card ui" autocomplete="on" novalidate hidden>
+          <div class="seg auth-tabs" id="auth-tabs" role="tablist" aria-label="Zugang">
+            <button type="button" role="tab" data-mode="login" aria-selected="true">Anmelden</button>
+            <button type="button" role="tab" data-mode="register" aria-selected="false">Registrieren</button>
+            <button type="button" role="tab" data-mode="guest" aria-selected="false">Gast</button>
+          </div>
+          <label class="field" data-for="login register">
+            <span>E-Mail</span>
+            <input id="auth-email" class="input" type="email" inputmode="email" maxlength="254" placeholder="du@beispiel.de" autocomplete="email" autocapitalize="off" spellcheck="false" />
+          </label>
+          <label class="field" data-for="register guest" hidden>
+            <span>Spielername</span>
+            <input id="auth-nickname" class="input" maxlength="16" placeholder="z. B. NeonNinja" autocomplete="nickname" autocapitalize="off" spellcheck="false" />
+          </label>
+          <label class="field" data-for="login register">
+            <span>Passwort</span>
+            <input id="auth-password" class="input" type="password" maxlength="128" placeholder="mind. 8 Zeichen" autocomplete="current-password" />
+          </label>
+          <p id="auth-hint" class="auth-hint"></p>
+          <p id="auth-error" role="alert"></p>
+          <button id="auth-submit" class="btn primary" type="submit">Anmelden</button>
+          <button id="auth-reload" class="btn" type="button" hidden>Neu laden</button>
+          <a class="toplink" href="/leaderboard.html" target="_blank" rel="noopener">
+            <svg aria-hidden="true"><use href="#i-trophy" /></svg> Bestenliste
+          </a>
+        </form>
+
+        <!-- Lobby: Figur + Farbe waehlen, Match beitreten -->
+        <form id="join-card" class="card ui" autocomplete="off" hidden>
+          <div class="lobby-head">
+            <div class="who">
+              <span id="lobby-name" class="who-name">Spieler</span>
+              <span id="lobby-badge" class="badge">Konto</span>
+            </div>
+            <button id="logout" class="link-btn" type="button">Abmelden</button>
+          </div>
           <div class="picker">
             <button id="model-prev" class="icon-btn small" type="button" aria-label="Vorherige Figur">
               <svg aria-hidden="true"><use href="#i-left" /></svg>
@@ -142,15 +180,10 @@
           <button id="randomize" class="link-btn" type="button">
             <svg aria-hidden="true"><use href="#i-dice" /></svg> Zufälliger Look
           </button>
-
-          <label class="field">
-            <span>Dein Name</span>
-            <input id="nickname" maxlength="16" placeholder="z. B. NeonNinja" autocomplete="off" spellcheck="false" />
-          </label>
           <p id="join-error" role="alert"></p>
-          <button id="play" class="btn primary" type="submit">Spielen</button>
+          <button id="play" class="btn primary" type="submit">Match beitreten</button>
           <button id="reload" class="btn" type="button" hidden>Neu laden</button>
-          <a id="toplink" href="/leaderboard.html" target="_blank" rel="noopener">
+          <a class="toplink" href="/leaderboard.html" target="_blank" rel="noopener">
             <svg aria-hidden="true"><use href="#i-trophy" /></svg> Bestenliste
           </a>
         </form>

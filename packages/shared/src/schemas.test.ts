@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inputSchema, joinSchema } from './schemas.js'
+import { inputSchema, joinSchema, loginSchema, registerSchema, skinUpdateSchema } from './schemas.js'
 import { PROTOCOL_V } from './protocol.js'
 import { SKIN_COUNT } from './skins.js'
 
@@ -40,5 +40,33 @@ describe('shared schemas (M1-01 Vorgriff)', () => {
       admin: true,
     })
     expect((parsed as Record<string, unknown>).admin).toBeUndefined()
+  })
+})
+
+describe('Account-Schemas (ADR-005)', () => {
+  const ok = { email: '  Neo@Example.COM ', password: 'sehr-geheim-123', nickname: 'Neo_1' }
+
+  it('Register normalisiert die Email und strippt unbekannte Felder', () => {
+    const r = registerSchema.parse({ ...ok, isAdmin: true })
+    expect(r.email).toBe('neo@example.com')
+    expect('isAdmin' in r).toBe(false)
+  })
+
+  it('Register lehnt kurze Passwoerter, kaputte Emails und Script-Namen ab', () => {
+    expect(registerSchema.safeParse({ ...ok, password: '1234567' }).success).toBe(false)
+    expect(registerSchema.safeParse({ ...ok, password: 'x'.repeat(129) }).success).toBe(false)
+    expect(registerSchema.safeParse({ ...ok, email: 'nope' }).success).toBe(false)
+    expect(registerSchema.safeParse({ ...ok, nickname: '<img onerror=1>' }).success).toBe(false)
+  })
+
+  it('Login braucht nur Email + nicht-leeres Passwort', () => {
+    expect(loginSchema.safeParse({ email: 'a@b.de', password: 'x' }).success).toBe(true)
+    expect(loginSchema.safeParse({ email: 'a@b.de', password: '' }).success).toBe(false)
+  })
+
+  it('Skin-Update prueft den Bereich', () => {
+    expect(skinUpdateSchema.safeParse({ skin: 0 }).success).toBe(true)
+    expect(skinUpdateSchema.safeParse({ skin: SKIN_COUNT }).success).toBe(false)
+    expect(skinUpdateSchema.safeParse({ skin: 1.5 }).success).toBe(false)
   })
 })

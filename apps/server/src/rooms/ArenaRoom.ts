@@ -10,7 +10,7 @@ import {
   inputSchema,
   joinSchema,
 } from '@neon-arena/shared'
-import { checkGuestSession } from '../auth/guest.js'
+import { getSessionStore } from '../auth/sessions.js'
 import { getDb } from '../db/prisma.js'
 import { persistMatch, type ResultsDb } from '../db/results.js'
 import { checkLimit, getRateStore } from '../ratelimit/limiter.js'
@@ -105,11 +105,13 @@ export class ArenaRoom extends Room<ArenaState> {
       throw new Error('RATE_LIMITED')
     }
     // M4-02: Gast-Session prüfen (fremde Tokens abweisen).
-    if (!(await checkGuestSession(parsed.data.userId))) {
+    // Der Spielername kommt aus der Session (Konto/Gast), nicht aus den Client-Optionen.
+    const session = parsed.data.userId ? await getSessionStore().get(parsed.data.userId) : null
+    if (!session) {
       throw new Error('INVALID_GUEST')
     }
     const player = new Player()
-    player.nickname = parsed.data.nickname
+    player.nickname = session.nickname
     player.skin = parsed.data.skin ?? 0
     player.hp = classOf(player.skin).hp
     const spawn = findSpawn([...this.state.players.values()])

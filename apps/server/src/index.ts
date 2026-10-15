@@ -5,8 +5,18 @@ import { Server as GameServer } from '@colyseus/core'
 import { WebSocketTransport } from '@colyseus/ws-transport'
 import express, { type Express, type Request, type Response } from 'express'
 import helmet from 'helmet'
-import { GUEST_COOKIE, issueGuest, verifyGuest } from './auth/guest.js'
-import { RedisSessionStore, setSessionStore } from './auth/sessions.js'
+import { skinUpdateSchema } from '@neon-arena/shared'
+import { getAccountStore } from './auth/accounts.js'
+import {
+  ACCOUNT_TTL_SECONDS,
+  GUEST_COOKIE,
+  clearSessionCookie,
+  issueGuest,
+  issueSession,
+  verifyGuest,
+} from './auth/guest.js'
+import { loginAccount, registerAccount } from './auth/service.js'
+import { RedisSessionStore, getSessionStore, setSessionStore } from './auth/sessions.js'
 import { getDb } from './db/prisma.js'
 import { getRedis } from './db/redis.js'
 import { RedisRateStore, checkLimit, getRateStore, setRateStore } from './ratelimit/limiter.js'
@@ -54,6 +64,93 @@ export function createApp(): Express {
     } catch {
       res.status(400).json({ error: 'INVALID_NICKNAME' })
     }
+  })
+
+  // ADR-005: Konto registrieren (Email + Passwort + Spielername) -> Cookie-Session.
+  app.post('/auth/register', async (req, res) => {
+    if (!(await checkLimit(getRateStore(), `http:register:${httpIp(req)}`, 10, 10 * 60_000))) {
+      res.status(429).json({ error: 'RATE_LIMITED' })
+      return
+    }
+    try {
+      const result = await registerAccount(req.body, getAccountStore())
+      if (!result.ok) {
+        res.status(result.status).json({ error: result.error })
+        return
+      }
+      const a = result.account
+      const { identity, cookie } = await issueSession(
+        { userId: a.id, nickname: a.nickname, isGuest: false, skin: a.skin, email: a.email },
+        ACCOUNT_TTL_SECONDS,
+      )
+      res.setHeader('Set-Cookie', cookie)
+      res.status(201).json(identity)
+    } catch (err) {
+      console.error('[auth] register failed:', err)
+      res.status(500).json({ error: 'SERVER_ERROR' })
+    }
+  })
+
+  // ADR-005: Login. Limit pro IP (20/min) UND pro Email (8 / 5 min) gegen Passwort-Raten.
+  app.post('/auth/login', async (req, res) => {
+    const store = getRateStore()
+    const email =
+      typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase().slice(0, 254) : ''
+    if (
+      !(await checkLimit(store, `http:login:${httpIp(req)}`, 20, 60_000)) ||
+      (email && !(await checkLimit(store, `http:login:email:${email}`, 8, 5 * 60_000)))
+    ) {
+      res.status(429).json({ error: 'RATE_LIMITED' })
+      return
+    }
+    try {
+      const result = await loginAccount(req.body, getAccountStore())
+      if (!result.ok) {
+        res.status(result.status).json({ error: result.error })
+        return
+      }
+      const a = result.account
+      const { identity, cookie } = await issueSession(
+        { userId: a.id, nickname: a.nickname, isGuest: false, skin: a.skin, email: a.email },
+        ACCOUNT_TTL_SECONDS,
+      )
+      res.setHeader('Set-Cookie', cookie)
+      res.json(identity)
+    } catch (err) {
+      console.error('[auth] login failed:', err)
+      res.status(500).json({ error: 'SERVER_ERROR' })
+    }
+  })
+
+  // ADR-005: Logout: Session verwerfen + Cookie loeschen (immer 204, auch ohne Session).
+  app.post('/auth/logout', async (req, res) => {
+    const token = parseCookie(req.headers.cookie ?? '')[GUEST_COOKIE]
+    if (token) {
+      const identity = await verifyGuest(token)
+      if (identity) await getSessionStore().delete(identity.userId)
+    }
+    res.setHeader('Set-Cookie', clearSessionCookie())
+    res.status(204).end()
+  })
+
+  // Lobby: gewaehlten Look (Modell + Farbe) merken (Konto: dauerhaft, Gast: nur Session).
+  app.patch('/me/skin', async (req, res) => {
+    const token = parseCookie(req.headers.cookie ?? '')[GUEST_COOKIE]
+    const identity = token ? await verifyGuest(token) : null
+    if (!identity) {
+      res.status(401).json({ error: 'NO_SESSION' })
+      return
+    }
+    const parsed = skinUpdateSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({ error: 'INVALID_SKIN' })
+      return
+    }
+    const sessions = getSessionStore()
+    const session = await sessions.get(identity.userId)
+    if (session) await sessions.create({ ...session, skin: parsed.data.skin })
+    if (!identity.isGuest) await getAccountStore().setSkin(identity.userId, parsed.data.skin)
+    res.json({ ...identity, skin: parsed.data.skin })
   })
 
   // M4-02: Reload behaelt Identitaet (Cookie -> Session).
