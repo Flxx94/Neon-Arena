@@ -16,6 +16,21 @@ interface Spatial {
   gain: number
 }
 
+/** Klangfarbe des Schusses je Charakter (Index = Modell): Tonhoehe, Laenge, Wellenform, Lautstaerke. */
+const SHOT_VOICES: readonly {
+  pitch: number
+  len: number
+  wave: OscillatorType
+  gain: number
+}[] = [
+  { pitch: 1, len: 1, wave: 'square', gain: 1 }, // Blobby: Blubb
+  { pitch: 0.45, len: 1.8, wave: 'square', gain: 1.25 }, // Cuby: dumpfer Klotz
+  { pitch: 1.5, len: 0.6, wave: 'sawtooth', gain: 0.9 }, // Zappy: Zap
+  { pitch: 1.2, len: 1.5, wave: 'triangle', gain: 1.1 }, // Hexo: Sniper-Zisch
+  { pitch: 0.7, len: 1.6, wave: 'sine', gain: 1.4 }, // Boo: Geisterhauch
+  { pitch: 1.35, len: 0.8, wave: 'triangle', gain: 1.1 }, // Kitty: Kratzer
+]
+
 const A_MINOR_PENTA = [0, 3, 5, 7, 10]
 const ROOT = 55 // A1
 
@@ -225,16 +240,24 @@ export class SoundFX {
   // Spiel-Sounds
   // --------------------------------------------------------------------------------------
   /** Eigener Schuss: "pew" mit Knackpunkt (Pitch leicht variiert gegen Ermuedung). */
-  shoot(sp?: Spatial, own = true): void {
+  shoot(sp?: Spatial, own = true, kind = 0): void {
     if (!this.ready()) return
     const dest = this.out(sp)
     const r = 0.92 + Math.random() * 0.16
     const vol = own ? 1 : 0.7
-    this.tone({ from: 1250 * r, to: 190 * r, dur: 0.13, type: 'square', gain: 0.17 * vol, dest })
+    const v = SHOT_VOICES[kind] ?? SHOT_VOICES[0]!
     this.tone({
-      from: 620 * r,
+      from: 1250 * r * v.pitch,
+      to: 190 * r * v.pitch,
+      dur: 0.13 * v.len,
+      type: v.wave,
+      gain: 0.17 * vol * v.gain,
+      dest,
+    })
+    this.tone({
+      from: 620 * r * v.pitch,
       to: 90,
-      dur: 0.11,
+      dur: 0.11 * v.len,
       type: 'sawtooth',
       gain: 0.12 * vol,
       dest,

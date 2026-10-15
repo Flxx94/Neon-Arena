@@ -32,6 +32,8 @@ export interface ClientProjectile {
   id: string
   x: number
   y: number
+  /** Charakter-Klasse des Schuetzen (Modellindex): bestimmt Optik/Sound. */
+  kind: number
 }
 
 export interface ClientPickup {
@@ -112,7 +114,12 @@ export class NetClient {
         }),
       )
       const projectiles: ClientProjectile[] = [...state.projectiles.values()].map(
-        (p: { id: string; x: number; y: number }) => ({ id: p.id, x: p.x, y: p.y }),
+        (p: { id: string; x: number; y: number; kind?: number }) => ({
+          id: p.id,
+          x: p.x,
+          y: p.y,
+          kind: p.kind ?? 0,
+        }),
       )
       const pickups: ClientPickup[] = [...state.pickups.values()].map(
         (p: { id: string; kind: string; x: number; y: number }) => ({

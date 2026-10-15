@@ -118,10 +118,16 @@ export function onBoostPad(p: Vec): boolean {
  * Ein Bewegungs-Tick eines Spielers (Server-Sim UND Client-Prediction nutzen exakt dies).
  * `boost` = verbleibende Boost-Ticks; Rueckgabe = neuer Wert. Boost wirkt ab dem Tick nach dem
  * Betreten, wird auf dem Feld aufgefrischt und laeuft sonst pro Tick um 1 ab.
- * Mutiert p.
+ * `baseSpeed` = Lauftempo der Charakter-Klasse (px/s). Mutiert p.
  */
-export function stepPlayer(p: Vec, boost: number, dx: number, dy: number): number {
-  const speed = (PLAYER_SPEED / TICK_RATE) * (boost > 0 ? BOOST_SPEED_MULT : 1)
+export function stepPlayer(
+  p: Vec,
+  boost: number,
+  dx: number,
+  dy: number,
+  baseSpeed: number = PLAYER_SPEED,
+): number {
+  const speed = (baseSpeed / TICK_RATE) * (boost > 0 ? BOOST_SPEED_MULT : 1)
   p.x += dx * speed
   p.y += dy * speed
   resolveArena(p, PLAYER_RADIUS)

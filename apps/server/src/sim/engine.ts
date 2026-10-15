@@ -4,7 +4,6 @@ import {
   BOT_FIRE_RANGE,
   BOT_PREFERRED_RANGE,
   BOT_THINK_TICKS,
-  FIRE_INTERVAL_MS,
   FILL_MIN_PLAYERS,
   KILL_SCORE,
   MAX_BOTS_PER_ROOM,
@@ -14,18 +13,17 @@ import {
   PICKUP_RADIUS,
   PICKUP_SHIELD_AMOUNT,
   PICKUP_SPAWN_INTERVAL_MS,
-  PLAYER_HP,
   PLAYER_RADIUS,
-  PROJECTILE_DAMAGE,
-  PROJECTILE_RADIUS,
-  PROJECTILE_SPEED,
-  PROJECTILE_TTL_MS,
   RESPAWN_SECONDS,
   REWIND_TICKS,
   ROUND_END_SECONDS,
   ROUND_SECONDS,
   SHIELD_MAX,
   SKIN_COUNT,
+  CLASSES,
+  classOf,
+  classRange,
+  skinModel,
   SPAWN_PROTECTION_SECONDS,
   SURVIVAL_BONUS,
   TICK_RATE,
@@ -256,7 +254,7 @@ function startRound(ctx: SimContext, state: ArenaState): void {
     const spawn = findSpawn(placed)
     player.x = spawn.x
     player.y = spawn.y
-    player.hp = PLAYER_HP
+    player.hp = classOf(player.skin).hp
     player.boost = 0
     player.shield = 0
     player.alive = true
@@ -288,7 +286,7 @@ function handleRespawns(ctx: SimContext, state: ArenaState): void {
     const spawn = findSpawn(alive)
     player.x = spawn.x
     player.y = spawn.y
-    player.hp = PLAYER_HP
+    player.hp = classOf(player.skin).hp
     player.boost = 0
     player.shield = 0
     player.alive = true
@@ -303,7 +301,13 @@ function movePlayers(ctx: SimContext, state: ArenaState): void {
     const input = ctx.inputs.get(id)
     if (!input || ctx.stalled.has(id)) continue
     // Gleiche Schrittfunktion wie die Client-Prediction (shared/physics): Boost inklusive.
-    player.boost = stepPlayer(player, player.boost, input.dx, input.dy)
+    player.boost = stepPlayer(
+      player,
+      player.boost,
+      input.dx,
+      input.dy,
+      classOf(player.skin).speed,
+    )
   }
 }
 
@@ -322,25 +326,28 @@ function resolvePlayerCollisions(state: ArenaState): void {
 }
 
 function fireWeapons(ctx: SimContext, state: ArenaState): void {
-  const intervalTicks = Math.ceil((FIRE_INTERVAL_MS / 1000) * TICK_RATE)
   for (const [id, player] of state.players) {
     if (!player.alive) continue
     const input = ctx.inputs.get(id)
     const timers = ctx.timers.get(id)
     if (!input?.fire || !timers) continue
+    // Charakter-Waffe (shared/classes): Abklingzeit, Tempo, Radius, Reichweite je Klasse.
+    const cls = classOf(player.skin)
     // Fire-Rate serverseitig erzwungen (M2-03): zu fruehe Schuesse verfallen.
-    if (ctx.tick - timers.lastFireTick < intervalTicks) continue
+    if (ctx.tick - timers.lastFireTick < cls.cooldownTicks) continue
     timers.lastFireTick = ctx.tick
     const proj = new Projectile()
     proj.id = `p${ctx.nextProjectileId++}`
     proj.owner = id
+    proj.kind = skinModel(player.skin)
     const aim = input.aim
-    proj.x = player.x + Math.cos(aim) * (PLAYER_RADIUS + PROJECTILE_RADIUS + 1)
-    proj.y = player.y + Math.sin(aim) * (PLAYER_RADIUS + PROJECTILE_RADIUS + 1)
-    proj.vx = Math.cos(aim) * PROJECTILE_SPEED
-    proj.vy = Math.sin(aim) * PROJECTILE_SPEED
+    const offset = PLAYER_RADIUS + cls.projectileRadius + 1
+    proj.x = player.x + Math.cos(aim) * offset
+    proj.y = player.y + Math.sin(aim) * offset
+    proj.vx = Math.cos(aim) * cls.projectileSpeed
+    proj.vy = Math.sin(aim) * cls.projectileSpeed
     state.projectiles.push(proj)
-    ctx.projectileTtl.set(proj.id, Math.ceil((PROJECTILE_TTL_MS / 1000) * TICK_RATE))
+    ctx.projectileTtl.set(proj.id, cls.ttlTicks)
   }
 }
 
@@ -362,7 +369,7 @@ function updateProjectiles(ctx: SimContext, state: ArenaState, dt: number): void
       proj.x > ARENA_WIDTH ||
       proj.y < 0 ||
       proj.y > ARENA_HEIGHT ||
-      insideObstacle(proj.x, proj.y, PROJECTILE_RADIUS)
+      insideObstacle(proj.x, proj.y, (CLASSES[proj.kind] ?? CLASSES[0]!).projectileRadius)
     ) {
       dead = true
     } else if (state.phase === 'play') {
@@ -380,10 +387,11 @@ function updateProjectiles(ctx: SimContext, state: ArenaState, dt: number): void
 function checkHits(
   ctx: SimContext,
   state: ArenaState,
-  proj: { x: number; y: number; owner: string },
+  proj: { x: number; y: number; vx: number; vy: number; kind: number; owner: string },
   prevX: number,
   prevY: number,
 ): boolean {
+  const cls = CLASSES[proj.kind] ?? CLASSES[0]!
   for (const [id, player] of state.players) {
     if (id === proj.owner || !player.alive) continue
     const timers = ctx.timers.get(id)
@@ -399,26 +407,48 @@ function checkHits(
         proj.y,
         rewound.x,
         rewound.y,
-        PLAYER_RADIUS + PROJECTILE_RADIUS,
+        PLAYER_RADIUS + cls.projectileRadius,
       )
     ) {
-      damage(ctx, state, id, proj.owner)
+      let amount = cls.damage
+      // Rueckenschaden (Kitty): Ziel schaut ungefaehr in Flugrichtung = vom Schuetzen weg (cos > 0.5, +-60 Grad).
+      if (cls.backstab > 1) {
+        const speed = Math.hypot(proj.vx, proj.vy) || 1
+        if ((proj.vx * Math.cos(player.aim) + proj.vy * Math.sin(player.aim)) / speed > 0.5) {
+          amount *= cls.backstab
+        }
+      }
+      damage(ctx, state, id, proj.owner, amount, cls.lifesteal)
       return true
     }
   }
   return false
 }
 
-function damage(ctx: SimContext, state: ArenaState, victimId: string, killerId: string): void {
+function damage(
+  ctx: SimContext,
+  state: ArenaState,
+  victimId: string,
+  killerId: string,
+  amount: number,
+  lifesteal = 0,
+): void {
   const victim = state.players.get(victimId)
   if (!victim || !victim.alive) return
-  let rest = PROJECTILE_DAMAGE
+  let rest = amount
   if (victim.shield > 0) {
     const absorbed = Math.min(victim.shield, rest)
     victim.shield -= absorbed
     rest -= absorbed
   }
   victim.hp -= rest
+  // Lifesteal (Boo): Anteil des verursachten Schadens, begrenzt auf die eigenen Max-Lebenspunkte.
+  if (lifesteal > 0) {
+    const healer = state.players.get(killerId)
+    if (healer?.alive) {
+      healer.hp = Math.min(classOf(healer.skin).hp, healer.hp + amount * lifesteal)
+    }
+  }
   if (victim.hp > 0) return
   victim.hp = 0
   victim.alive = false
@@ -464,8 +494,9 @@ function updatePickups(ctx: SimContext, state: ArenaState): void {
       if (Math.hypot(player.x - pickup.x, player.y - pickup.y) > PLAYER_RADIUS + PICKUP_RADIUS)
         continue
       if (pickup.kind === 'hp') {
-        if (player.hp >= PLAYER_HP) continue
-        player.hp = Math.min(PLAYER_HP, player.hp + PICKUP_HP_AMOUNT)
+        const maxHp = classOf(player.skin).hp
+        if (player.hp >= maxHp) continue
+        player.hp = Math.min(maxHp, player.hp + PICKUP_HP_AMOUNT)
       } else {
         if (player.shield >= SHIELD_MAX) continue
         player.shield = Math.min(SHIELD_MAX, player.shield + PICKUP_SHIELD_AMOUNT)
@@ -553,14 +584,17 @@ function thinkBots(ctx: SimContext, state: ArenaState): void {
       ctx.inputs.set(id, { kind: 'input', seq: ctx.tick, dx: 0, dy: 0, aim: 0, fire: false })
       continue
     }
+    // Klassenreichweite: Kurzstrecken-Bots (Assassins) muessen naeher ran, Sniper schiessen frueher.
+    const reach = classRange(classOf(bot.skin))
     const aim = Math.atan2(nearest.y - bot.y, nearest.x - bot.x)
     const visible = lineOfSight(bot, nearest)
     let mx = 0
     let my = 0
-    if (nearestDist > BOT_PREFERRED_RANGE + 40) {
+    const preferred = Math.min(BOT_PREFERRED_RANGE, reach * 0.6)
+    if (nearestDist > preferred + 40) {
       mx = Math.cos(aim) * 0.8
       my = Math.sin(aim) * 0.8
-    } else if (nearestDist < BOT_PREFERRED_RANGE - 40) {
+    } else if (nearestDist < preferred - 40) {
       mx = -Math.cos(aim) * 0.8
       my = -Math.sin(aim) * 0.8
     }
@@ -576,7 +610,7 @@ function thinkBots(ctx: SimContext, state: ArenaState): void {
       mx /= mag
       my /= mag
     }
-    const fire = nearestDist < BOT_FIRE_RANGE && visible
+    const fire = nearestDist < Math.min(BOT_FIRE_RANGE, reach * 0.9) && visible
     ctx.inputs.set(id, { kind: 'input', seq: ctx.tick, dx: mx, dy: my, aim, fire })
     bot.ackSeq = ctx.tick
     bot.aim = quantizeAim(aim)

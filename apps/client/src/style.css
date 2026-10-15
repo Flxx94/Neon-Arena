@@ -411,6 +411,82 @@ kbd {
   animation: pop-in 280ms var(--pop);
 }
 
+.class-info {
+  --role: var(--accent);
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 2.5px solid var(--ink);
+  border-radius: 14px;
+  box-shadow: 0 3px 0 var(--ink);
+}
+.class-info[data-role='tank'] {
+  --role: var(--good);
+}
+.class-info[data-role='assassin'] {
+  --role: var(--bad);
+}
+.class-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.role-badge {
+  padding: 2px 10px;
+  font-size: 13px;
+  letter-spacing: 0.4px;
+  color: var(--ink);
+  background: var(--role);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+}
+.attack-name {
+  font-size: 13px;
+  opacity: 0.75;
+}
+.class-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  min-height: 2.7em;
+}
+.stats {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+}
+.stat {
+  display: grid;
+  grid-template-columns: 84px 1fr 38px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.stat dt {
+  opacity: 0.8;
+}
+.stat dd {
+  height: 8px;
+  margin: 0;
+  background: var(--panel-3);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.stat dd i {
+  display: block;
+  height: 100%;
+  width: calc(var(--v, 0.5) * 100%);
+  background: var(--role);
+  transition: width 260ms var(--pop);
+}
+.stat b {
+  text-align: right;
+}
+
 .swatches {
   display: flex;
   flex-wrap: wrap;

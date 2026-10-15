@@ -21,6 +21,7 @@ export interface RenderProjectile {
   id: string
   x: number
   y: number
+  kind: number
 }
 
 export interface RenderPickup {
@@ -43,7 +44,7 @@ export interface RenderState {
 
 /** Ereignisse, die der Renderer aus Zustandsdifferenzen ableitet (fuer Sound/HUD in main.ts). */
 export interface RenderHooks {
-  onShot?: (own: boolean, x: number, y: number) => void
+  onShot?: (own: boolean, x: number, y: number, kind: number) => void
   onImpact?: (x: number, y: number) => void
   /** `amount` = verlorene HP+Shield; `own` = eigener Spieler wurde getroffen. */
   onHit?: (own: boolean, x: number, y: number, amount: number, byOwnShot: boolean) => void
