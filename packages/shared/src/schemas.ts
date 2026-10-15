@@ -8,6 +8,24 @@ export const nicknameSchema = z
   .max(16)
   .regex(/^[a-zA-Z0-9_-]+$/)
 
+/** Account-Anmeldung (Email + Passwort). Email wird normalisiert (trim + lowercase). */
+export const emailSchema = z.string().trim().toLowerCase().email().max(254)
+/** Passwort: 8-128 Zeichen (scrypt hasht beliebige Laenge; Obergrenze gegen Missbrauch). */
+export const passwordSchema = z.string().min(8).max(128)
+
+export const registerSchema = z
+  .object({ email: emailSchema, password: passwordSchema, nickname: nicknameSchema })
+  .strip()
+
+export const loginSchema = z
+  .object({ email: emailSchema, password: z.string().min(1).max(128) })
+  .strip()
+
+/** Lobby: gewaehlter Look (Modell + Farbe) wird am Account gespeichert. */
+export const skinUpdateSchema = z
+  .object({ skin: z.number().int().min(0).max(SKIN_COUNT - 1) })
+  .strip()
+
 export const joinSchema = z.object({
   nickname: nicknameSchema,
   // Version nur als Zahl akzeptieren; Mismatch -> explizites PROTOCOL_MISMATCH (M5-01).
@@ -35,5 +53,7 @@ export const inputSchema = z
   })
   .strip()
 
+export type RegisterInput = z.infer<typeof registerSchema>
+export type LoginInput = z.infer<typeof loginSchema>
 export type JoinInput = z.infer<typeof joinSchema>
 export type ValidatedInput = z.infer<typeof inputSchema>

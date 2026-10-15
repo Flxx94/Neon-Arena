@@ -4,11 +4,20 @@ export interface Session {
   userId: string
   nickname: string
   createdAt: number
+  /** Default true (Gast). Konten: false. */
+  isGuest?: boolean
+  /** Zuletzt gewaehlter Look (Modell + Farbe), nur Kosmetik. */
+  skin?: number
+  /** Nur Konten. */
+  email?: string
+  /** Lebensdauer in Sekunden (Default 24 h; Konten laenger). */
+  ttlSeconds?: number
 }
 
 export interface SessionStore {
   create(session: Session): Promise<void>
   get(userId: string): Promise<Session | null>
+  delete(userId: string): Promise<void>
 }
 
 /** In-Memory (Dev/Tests). Kein TTL-Eviction – MVP ok, Prod nutzt Redis. */
@@ -23,6 +32,10 @@ export class MemorySessionStore implements SessionStore {
     return this.sessions.get(userId) ?? null
   }
 
+  async delete(userId: string): Promise<void> {
+    this.sessions.delete(userId)
+  }
+
   clear(): void {
     this.sessions.clear()
   }
@@ -35,7 +48,11 @@ export class RedisSessionStore implements SessionStore {
   constructor(private redis: RedisClientType) {}
 
   async create(session: Session): Promise<void> {
-    await this.redis.set(`session:${session.userId}`, JSON.stringify(session), { EX: SESSION_TTL_SECONDS })
+    await this.redis.set(`session:${session.userId}`, JSON.stringify(session), { EX: session.ttlSeconds ?? SESSION_TTL_SECONDS })
+  }
+
+  async delete(userId: string): Promise<void> {
+    await this.redis.del(`session:${userId}`)
   }
 
   async get(userId: string): Promise<Session | null> {

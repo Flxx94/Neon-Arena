@@ -9,7 +9,11 @@ export class Input {
 
   constructor() {
     addEventListener('touchstart', () => (this.lastTouchAt = performance.now()), { passive: true })
-    addEventListener('keydown', (e) => this.keys.add(e.code))
+    addEventListener('keydown', (e) => {
+      // Tippen in Formularfeldern (Login, Name) darf keine Bewegung ausloesen.
+      if ((e.target as Element | null)?.closest?.('input, textarea')) return
+      this.keys.add(e.code)
+    })
     addEventListener('keyup', (e) => this.keys.delete(e.code))
     addEventListener('mousemove', (e) => {
       this.mouseX = e.clientX
@@ -27,7 +31,9 @@ export class Input {
       this.keys.clear()
       this.firing = false
     })
-    addEventListener('contextmenu', (e) => e.preventDefault())
+    addEventListener('contextmenu', (e) => {
+      if (!(e.target as Element | null)?.closest?.('input, textarea')) e.preventDefault()
+    })
     addEventListener('mouseup', (e) => {
       if (e.button === 0) this.firing = false
     })
