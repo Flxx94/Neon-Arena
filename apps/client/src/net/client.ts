@@ -1,32 +1,7 @@
 import { Client, Room } from 'colyseus.js'
 import { MAX_INPUT_PER_SECOND } from '@neon-arena/shared'
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:2567'
-
-export interface GuestIdentity {
-  userId: string
-  nickname: string
-}
-
-/** Gast-Identitaet holen (M4-02): /me per Cookie, sonst neu ausstellen. */
-export async function ensureGuest(nickname: string): Promise<GuestIdentity> {
-  const me = await fetch(`${SERVER_URL}/me`, { credentials: 'include' }).catch(() => null)
-  if (me?.ok) {
-    const identity = (await me.json()) as GuestIdentity
-    if (identity.nickname === nickname) return identity
-  }
-  const res = await fetch(`${SERVER_URL}/auth/guest`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ nickname }),
-  })
-  if (!res.ok)
-    throw new Error(
-      res.status === 429 ? 'Zu viele Versuche – warte kurz' : 'Gast-Anmeldung fehlgeschlagen',
-    )
-  return (await res.json()) as GuestIdentity
-}
+import { SERVER_URL, type Identity } from './auth.js'
 
 export interface NetEvents {
   onSnapshot: (snapshot: WorldSnapshot) => void
@@ -88,12 +63,11 @@ export class NetClient {
     return this.room?.sessionId ?? null
   }
 
-  async join(nickname: string, skin: number, events: NetEvents): Promise<void> {
-    const guest = await ensureGuest(nickname)
+  async join(identity: Identity, skin: number, events: NetEvents): Promise<void> {
     this.room = await this.client.joinOrCreate('arena', {
-      nickname: guest.nickname,
+      nickname: identity.nickname,
       protocolV: 1,
-      userId: guest.userId,
+      userId: identity.userId,
       skin,
     })
     this.room.onMessage('killfeed', (msg: { by: string; victim: string }) => {
