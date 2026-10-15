@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   ARENA_WIDTH,
+  CLASSES,
+  classOf,
   BOOST_PADS,
   BOOST_SPEED_MULT,
   BOOST_TICKS,
@@ -325,5 +327,143 @@ describe('engine Input-Queue + Boost', () => {
       update(ctx, state)
     }
     expect(p.boost).toBe(0)
+  })
+
+  describe('Charakter-Klassen', () => {
+    /** Spieler mit Klasse `model` (Farbe 0) an Position, mit klassenspezifischem Voll-HP. */
+    function addClass(state: ArenaState, id: string, model: number, x: number, y: number): Player {
+      const p = addPlayer(state, id, x, y)
+      p.skin = model
+      p.hp = classOf(model).hp
+      return p
+    }
+    function setup(shooterModel: number, victimModel: number, gap = 200, x0 = 1300, y0 = 800) {
+      const ctx = createContext(false)
+      const state = new ArenaState()
+      const shooter = addClass(state, 'shooter', shooterModel, x0, y0)
+      const victim = addClass(state, 'victim', victimModel, x0 + gap, y0)
+      initPlayer(ctx, 'shooter', { x: x0, y: y0 })
+      initPlayer(ctx, 'victim', { x: x0 + gap, y: y0 })
+      ctx.timers.get('victim')!.protectedUntil = -1
+      ctx.timers.get('shooter')!.protectedUntil = -1
+      return { ctx, state, shooter, victim }
+    }
+    function shootOnce(ctx: ReturnType<typeof createContext>, state: ArenaState, ticks = 30) {
+      applyInput(ctx, state, 'shooter', input(1, 0, 0, 0, true))
+      update(ctx, state)
+      applyInput(ctx, state, 'shooter', input(2, 0, 0, 0, false))
+      for (let i = 0; i < ticks; i++) update(ctx, state)
+    }
+
+    it('Schaden und Projektil-Eigenschaften kommen aus der Klasse des Schuetzen', () => {
+      for (const model of [1, 2, 3, 4, 5]) {
+        const { ctx, state, victim } = setup(model, 0, 150)
+        // Kitty trifft einen nach Osten blickenden Gegner von hinten -> Rueckenbonus ausschliessen.
+        victim.aim = Math.PI
+        shootOnce(ctx, state)
+        const c = classOf(model)
+        expect(victim.hp).toBeCloseTo(classOf(0).hp - c.damage, 5)
+      }
+    })
+
+    it('Projektil traegt die Klasse (kind) und die Klassengeschwindigkeit', () => {
+      const { ctx, state } = setup(3, 0, 1500)
+      applyInput(ctx, state, 'shooter', input(1, 0, 0, 0, true))
+      update(ctx, state)
+      const proj = state.projectiles[0]!
+      expect(proj.kind).toBe(3)
+      expect(proj.vx).toBeCloseTo(CLASSES[3]!.projectileSpeed, 5)
+    })
+
+    it('Abklingzeit je Klasse: Cuby schiesst deutlich seltener als Zappy', () => {
+      const count = (model: number): number => {
+        const { ctx, state } = setup(model, 0, 2000)
+        applyInput(ctx, state, 'shooter', input(1, 0, 0, 0, true))
+        let shots = 0
+        let seen = new Set<string>()
+        for (let i = 0; i < 60; i++) {
+          update(ctx, state)
+          for (const p of state.projectiles) {
+            if (!seen.has(p.id)) {
+              seen.add(p.id)
+              shots++
+            }
+          }
+        }
+        return shots
+      }
+      expect(count(1)).toBe(Math.ceil(60 / CLASSES[1]!.cooldownTicks))
+      expect(count(2)).toBe(Math.ceil(60 / CLASSES[2]!.cooldownTicks))
+      expect(count(2)).toBeGreaterThan(count(1) * 2)
+    })
+
+    it('Reichweite: Zappy-Bolzen verfallen frueh, Hex-Nadeln fliegen weit', () => {
+      const short = setup(2, 0, 1200, 150, 30)
+      shootOnce(short.ctx, short.state, 10 + CLASSES[2]!.ttlTicks)
+      expect(short.state.projectiles.length).toBe(0)
+      const far = setup(3, 0, 1200, 150, 30)
+      applyInput(far.ctx, far.state, 'shooter', input(1, 0, 0, 0, true))
+      update(far.ctx, far.state)
+      for (let i = 0; i < CLASSES[2]!.ttlTicks + 5; i++) update(far.ctx, far.state)
+      expect(far.state.projectiles.length).toBe(1)
+    })
+
+    it('Kitty: Rueckenschaden nur, wenn das Ziel vom Schuetzen wegschaut', () => {
+      const away = setup(5, 0, 150)
+      away.victim.aim = 0 // schaut in Flugrichtung (nach Osten) = Ruecken zum Schuetzen
+      shootOnce(away.ctx, away.state)
+      expect(classOf(0).hp - away.victim.hp).toBeCloseTo(CLASSES[5]!.damage * CLASSES[5]!.backstab, 5)
+      const facing = setup(5, 0, 150)
+      facing.victim.aim = Math.PI // schaut den Schuetzen an
+      shootOnce(facing.ctx, facing.state)
+      expect(classOf(0).hp - facing.victim.hp).toBeCloseTo(CLASSES[5]!.damage, 5)
+    })
+
+    it('Boo: Lifesteal heilt, ist aber auf Max-HP begrenzt', () => {
+      const { ctx, state, shooter, victim } = setup(4, 0, 150)
+      shooter.hp = 60
+      victim.aim = Math.PI
+      shootOnce(ctx, state)
+      expect(shooter.hp).toBeCloseTo(60 + CLASSES[4]!.damage * CLASSES[4]!.lifesteal, 5)
+      const full = setup(4, 0, 150)
+      full.victim.aim = Math.PI
+      shootOnce(full.ctx, full.state)
+      expect(full.shooter.hp).toBe(CLASSES[4]!.hp)
+    })
+
+    it('Tempo je Klasse: Bewegung nutzt die Klassen-Geschwindigkeit (Server = Prediction)', () => {
+      for (const model of [0, 1, 2]) {
+        const ctx = createContext(false)
+        const state = new ArenaState()
+        const p = addClass(state, 'a', model, 1300, 800)
+        initPlayer(ctx, 'a', { x: 1300, y: 800 })
+        applyInput(ctx, state, 'a', input(1, 1, 0))
+        const x0 = p.x
+        update(ctx, state)
+        expect(p.x - x0).toBeCloseTo(classOf(model).speed / TICK_RATE, 5)
+      }
+    })
+
+    it('Respawn und Heil-Pickup nutzen die Max-HP der Klasse', () => {
+      const ctx = createContext(false)
+      const state = new ArenaState()
+      const tank = addClass(state, 'tank', 1, 1300, 800)
+      initPlayer(ctx, 'tank', { x: 1300, y: 800 })
+      tank.hp = 0
+      tank.alive = false
+      ctx.timers.get('tank')!.respawnAt = ctx.tick
+      update(ctx, state)
+      expect(tank.alive).toBe(true)
+      expect(tank.hp).toBe(CLASSES[1]!.hp)
+      tank.hp = CLASSES[1]!.hp - 5
+      const pu = new Pickup()
+      pu.id = 'u1'
+      pu.kind = 'hp'
+      pu.x = tank.x
+      pu.y = tank.y
+      state.pickups.push(pu)
+      update(ctx, state)
+      expect(tank.hp).toBe(CLASSES[1]!.hp)
+    })
   })
 })

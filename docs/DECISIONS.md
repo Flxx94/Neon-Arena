@@ -41,3 +41,16 @@
   - Client: Input-/Prediction-Tick laeuft per Akkumulator im Render-Loop (nicht setInterval), die eigene Figur wird zwischen den 30-Hz-Schritten
     interpoliert; Reconciliation-Fehler werden weich ausgeblendet (Snap ab 90 px); Frame-Zeit aus `document.timeline.currentTime` (vsync-genau).
 - Messung (Headless, simulierte 30-70 ms Latenz mit Jitter): Eigengeschwindigkeit konstant 165 px/s (stdev ~0 statt ~19 px/s).
+
+## ADR-006: Charakter-Klassen (Werte + eine Attacke je Figur)
+- Status: akzeptiert (2026-10-15)
+- Entscheidung:
+  - `shared/classes.ts` ist die einzige Quelle: pro Modell (Index = `skinModel(skin)`) Rolle (Damage Dealer / Tank / Assassin), Leben, Tempo,
+    genau eine Attacke (Cooldown in Ticks, Schaden, Projektil-Tempo/-Radius/-Lebensdauer) plus Sonderverhalten. Blobby entspricht der bisherigen Einheitswaffe.
+  - Sonderverhalten kostet O(1) pro Treffer, keine zusaetzlichen Entities: Boo = Lifesteal 30 %, Kitty = Rueckenschaden x1.7 (Ziel schaut vom Schuetzen weg),
+    Hexo = Sniper (schnell, weit), Cuby = grosse langsame Wuerfel, Zappy = kurzreichweitige Blitze.
+  - `stepPlayer` bekommt das Klassen-Tempo (Server und Client-Prediction), Max-HP leitet jeder aus dem Skin ab (Spawn, Respawn, Pickup, HUD, Lebensbalken).
+    Einziges neues Netzfeld: `Projectile.kind` (uint8, additiv; PROTOCOL_V bleibt 1) fuer Optik/Sound.
+  - Balance: `classPower` (DPS x Leben x Tempo, Lifesteal/Rueckenbonus gewichtet) liegt in +-30 % des Mittels (Test); Cooldown >= 6 Ticks und
+    max. gleichzeitige Projektile je Spieler <= Standardwaffe (Test) -> Serverlast nicht hoeher als vorher. Bots nutzen Klassenreichweite.
+  - Lobby zeigt Rolle, Attackenname, Kurzbeschreibung und Wertebalken.

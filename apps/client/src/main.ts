@@ -3,8 +3,12 @@ import {
   ARENA_WIDTH,
   COLOR_COUNT,
   COLOR_NAMES,
-  FIRE_INTERVAL_MS,
   TICK_RATE,
+  CLASSES,
+  ROLE_LABELS,
+  classDps,
+  classOf,
+  classRange,
   MODEL_COUNT,
   MODEL_NAMES,
   RESPAWN_SECONDS,
@@ -244,9 +248,51 @@ function currentSkin(): number {
   return makeSkin(model, color)
 }
 
+// Lobby: Klassen-Info (Rolle, Attacke, Beschreibung, Wertebalken). Aufbau einmalig, Update je Wechsel.
+const classInfo = $<HTMLDivElement>('class-info')
+const roleBadge = $<HTMLSpanElement>('role-badge')
+const attackName = $<HTMLSpanElement>('attack-name')
+const classDesc = $<HTMLParagraphElement>('class-desc')
+const statsEl = $<HTMLDListElement>('class-stats')
+const STAT_DEFS: { label: string; get: (c: (typeof CLASSES)[number]) => number }[] = [
+  { label: 'Leben', get: (c) => c.hp },
+  { label: 'Tempo', get: (c) => c.speed },
+  { label: 'Schaden/s', get: (c) => classDps(c) },
+  { label: 'Reichweite', get: (c) => classRange(c) },
+]
+const statRows = STAT_DEFS.map((def) => {
+  const row = document.createElement('div')
+  row.className = 'stat'
+  const dt = document.createElement('dt')
+  dt.textContent = def.label
+  const bar = document.createElement('dd')
+  const fill = document.createElement('i')
+  bar.appendChild(fill)
+  const num = document.createElement('b')
+  row.append(dt, bar, num)
+  statsEl.appendChild(row)
+  const max = Math.max(...CLASSES.map(def.get))
+  return { def, fill, num, max }
+})
+
+function syncClassInfo(): void {
+  const c = CLASSES[model]
+  if (!c) return
+  classInfo.dataset.role = c.role
+  roleBadge.textContent = ROLE_LABELS[c.role]
+  attackName.textContent = c.attack
+  classDesc.textContent = c.description
+  for (const { def, fill, num, max } of statRows) {
+    const v = def.get(c)
+    fill.style.setProperty('--v', String(Math.max(0.08, v / max)))
+    num.textContent = String(Math.round(v))
+  }
+}
+
 function syncPicker(bump: boolean): void {
   preview.setSkin(currentSkin(), bump)
   modelName.textContent = MODEL_NAMES[model] ?? ''
+  syncClassInfo()
   if (bump) {
     modelName.classList.remove('bump')
     void modelName.offsetWidth
@@ -438,10 +484,10 @@ function onPhaseChange(prev: string, next: string): void {
 // ---------------------------------------------------------------------------------------
 let lastImpactSfx = 0
 renderer.hooks = {
-  onShot: (own, x, y) => {
+  onShot: (own, x, y, kind) => {
     if (own) return // eigener Schuss wird sofort im Input-Loop vertont (kein Netz-Lag)
     const sp = sfx.spatial(x - prediction.predicted.x, y - prediction.predicted.y)
-    if (sp.gain > 0.15) sfx.shoot(sp, false)
+    if (sp.gain > 0.15) sfx.shoot(sp, false, kind)
   },
   onImpact: (x, y) => {
     const now = performance.now()
@@ -528,7 +574,10 @@ playBtn.addEventListener('click', () => {
           if (n) n.textContent = String(snapshot.timeLeft)
         }
         const own = players.find((p) => p.id === net.sessionId)
-        if (own) prediction.reconcile(own.x, own.y, own.ackSeq, own.boost)
+        if (own) {
+          prediction.speed = classOf(own.skin).speed
+          prediction.reconcile(own.x, own.y, own.ackSeq, own.boost)
+        }
       },
       onKill: (by, victim) => pushKill(by, victim),
       onError: (msg) => {
@@ -645,10 +694,12 @@ function inputTick(): void {
   if (seq >= 0) {
     const now = performance.now()
     const own = players.find((p) => p.id === net.sessionId)
-    if (firing && own?.alive && now - lastShootSfx > FIRE_INTERVAL_MS) {
+    if (own) prediction.speed = classOf(own.skin).speed
+    const cooldownMs = own ? (classOf(own.skin).cooldownTicks / TICK_RATE) * 1000 : 250
+    if (firing && own?.alive && now - lastShootSfx > cooldownMs) {
       lastShootSfx = now
       activity = Math.min(1, activity + 0.04)
-      sfx.shoot()
+      sfx.shoot(undefined, true, own.skin % MODEL_COUNT)
     }
     const boostBefore = prediction.boostLeft
     prediction.applyLocal({ seq, dx, dy })
@@ -707,13 +758,14 @@ function updateHud(own: ClientPlayer | undefined): void {
   if (own) {
     const hp = Math.max(0, Math.round(own.hp))
     hpNum.textContent = String(hp)
-    hpFill.style.width = `${hp}%`
-    hpTrail.style.width = `${hp}%`
+    const hpPct = Math.min(100, (hp / classOf(own.skin).hp) * 100)
+    hpFill.style.width = `${hpPct}%`
+    hpTrail.style.width = `${hpPct}%`
     hpFill.style.setProperty(
       '--hp',
-      hp > 50 ? 'var(--good)' : hp > 25 ? 'var(--warn)' : 'var(--bad)',
+      hpPct > 50 ? 'var(--good)' : hpPct > 25 ? 'var(--warn)' : 'var(--bad)',
     )
-    vitalsEl.classList.toggle('low', hp <= 25 && own.alive)
+    vitalsEl.classList.toggle('low', hpPct <= 25 && own.alive)
     const sh = Math.round(own.shield)
     shieldFill.style.width = `${Math.min(100, (sh / 50) * 100)}%`
     shieldNum.textContent = String(sh)
@@ -812,7 +864,7 @@ function frame() {
   // Musik-Intensitaet: Aktivitaet klingt ab, letzte 30 s + Gefahr treiben hoch.
   activity = Math.max(0, activity - 0.0045)
   const endgame = phase === 'play' && timeLeft <= 30 ? 0.25 : 0
-  const danger = own && own.alive && own.hp <= 35 ? 0.2 : 0
+  const danger = own && own.alive && own.hp / classOf(own.skin).hp <= 0.35 ? 0.2 : 0
   sfx.setIntensity(phase === 'end' ? 0.1 : 0.25 + activity * 0.5 + endgame + danger)
 
   requestAnimationFrame(frame)

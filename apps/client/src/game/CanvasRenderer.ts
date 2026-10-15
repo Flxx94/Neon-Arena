@@ -2,8 +2,10 @@ import {
   ARENA_HEIGHT,
   ARENA_WIDTH,
   PICKUP_RADIUS,
+  CLASSES,
   PLAYER_RADIUS,
   PROJECTILE_RADIUS,
+  classOf,
   skinColor,
   skinModel,
 } from '@neon-arena/shared'
@@ -54,6 +56,7 @@ interface ProjTrack {
   color: string
   seen: boolean
   shooterId: string | null
+  kind: number
 }
 
 interface PickupTrack {
@@ -346,6 +349,7 @@ export class CanvasRenderer implements Renderer {
           color: tone.base,
           seen: true,
           shooterId: shooter?.id ?? null,
+          kind: pr.kind,
         }
         this.projs.set(pr.id, t)
         if (shooter && this.initialized) {
@@ -361,7 +365,7 @@ export class CanvasRenderer implements Renderer {
             this.lastOwnShotAt = this.clock
             this.fx.shake(1.6)
           }
-          this.hooks.onShot?.(own, pr.x, pr.y)
+          this.hooks.onShot?.(own, pr.x, pr.y, pr.kind)
         }
       }
       t.seen = true
@@ -376,7 +380,9 @@ export class CanvasRenderer implements Renderer {
       // Nur Wand-/Zeit-Einschlag zeigen, wenn dort kein Spieler getroffen wurde (Treffer hat eigenen Effekt)
       const hitPlayer = state.players.some(
         (pl) =>
-          pl.alive && Math.hypot(pl.x - t.x, pl.y - t.y) < PLAYER_RADIUS + PROJECTILE_RADIUS + 24,
+          pl.alive &&
+          Math.hypot(pl.x - t.x, pl.y - t.y) <
+            PLAYER_RADIUS + (CLASSES[t.kind]?.projectileRadius ?? PROJECTILE_RADIUS) + 24,
       )
       if (!hitPlayer) {
         this.fx.impact(t.x, t.y, t.color)
@@ -444,7 +450,7 @@ export class CanvasRenderer implements Renderer {
     // Bildschirmraum: Vignette bei wenig Leben + Fadenkreuz
     ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0)
     const own = state.players.find((p) => p.id === state.ownId)
-    if (own?.alive) this.drawLowHp(ctx, own.hp, dt)
+    if (own?.alive) this.drawLowHp(ctx, (own.hp / classOf(own.skin).hp) * 100, dt)
     if (state.crosshair && own?.alive)
       this.drawCrosshair(ctx, state.mouse, skinTone(skinColor(own.skin)).base, t)
   }
@@ -581,15 +587,18 @@ export class CanvasRenderer implements Renderer {
   private drawProjectiles(ctx: CanvasRenderingContext2D, t: number): void {
     const pal = this.pal
     for (const tr of this.projs.values()) {
+      const pr = (CLASSES[tr.kind] ?? CLASSES[0]!).projectileRadius
       // Schweif
       const pts = [...tr.trail, { x: tr.x, y: tr.y }]
+      const last = pts[pts.length - 2] ?? pts[0]!
+      const ang = Math.atan2(tr.y - last.y, tr.x - last.x)
       if (pts.length > 1) {
         ctx.lineCap = 'round'
         for (let i = 1; i < pts.length; i++) {
           const f = i / pts.length
           ctx.globalAlpha = f * 0.7
           ctx.strokeStyle = tr.color
-          ctx.lineWidth = PROJECTILE_RADIUS * 2 * f
+          ctx.lineWidth = pr * 2 * f
           ctx.beginPath()
           ctx.moveTo(pts[i - 1]!.x, pts[i - 1]!.y)
           ctx.lineTo(pts[i]!.x, pts[i]!.y)
@@ -597,7 +606,7 @@ export class CanvasRenderer implements Renderer {
         }
         ctx.globalAlpha = 1
       }
-      const r = PROJECTILE_RADIUS * 1.5
+      const r = pr * 1.5
       if (pal.additive) {
         const g = ctx.createRadialGradient(tr.x, tr.y, 1, tr.x, tr.y, r * 4)
         g.addColorStop(0, alpha(tr.color, 0.55))
@@ -607,19 +616,131 @@ export class CanvasRenderer implements Renderer {
         ctx.arc(tr.x, tr.y, r * 4, 0, TAU)
         ctx.fill()
       }
-      ctx.beginPath()
-      ctx.arc(tr.x, tr.y, r + 1.5, 0, TAU)
-      ctx.fillStyle = pal.ink
-      ctx.fill()
-      ctx.beginPath()
-      ctx.arc(tr.x, tr.y, r, 0, TAU)
-      ctx.fillStyle = tr.color
-      ctx.fill()
-      ctx.beginPath()
-      ctx.arc(tr.x - r * 0.2, tr.y - r * 0.2, r * 0.45 + Math.sin(t * 30) * 0.2, 0, TAU)
-      ctx.fillStyle = pal.bulletCore
-      ctx.fill()
+      this.drawBullet(ctx, tr.kind, tr.x, tr.y, ang, r, tr.color, t)
     }
+  }
+
+  /** Geschoss-Form je Charakter: Blase, Klotz, Funke, Nadel, Wisp, Kralle. */
+  private drawBullet(
+    ctx: CanvasRenderingContext2D,
+    kind: number,
+    x: number,
+    y: number,
+    ang: number,
+    r: number,
+    color: string,
+    t: number,
+  ): void {
+    const pal = this.pal
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.rotate(ang)
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'
+    switch (kind) {
+      case 1: {
+        // Klotz: Wuerfel
+        ctx.fillStyle = color
+        ctx.strokeStyle = pal.ink
+        ctx.lineWidth = 3
+        ctx.beginPath()
+        ctx.roundRect(-r, -r, r * 2, r * 2, 3)
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = pal.bulletCore
+        ctx.fillRect(-r * 0.55, -r * 0.55, r * 0.5, r * 0.5)
+        break
+      }
+      case 2: {
+        // Funke: kurzer Zickzack-Blitz
+        const l = r * 3.2
+        ctx.strokeStyle = pal.ink
+        ctx.lineWidth = r * 1.1 + 3
+        ctx.beginPath()
+        ctx.moveTo(-l, 0)
+        ctx.lineTo(-l * 0.3, -r * 0.8)
+        ctx.lineTo(l * 0.1, r * 0.8)
+        ctx.lineTo(l, 0)
+        ctx.stroke()
+        ctx.strokeStyle = color
+        ctx.lineWidth = r * 1.1
+        ctx.stroke()
+        ctx.strokeStyle = pal.bulletCore
+        ctx.lineWidth = r * 0.4
+        ctx.stroke()
+        break
+      }
+      case 3: {
+        // Nadel: lang und duenn
+        const l = r * 5
+        ctx.strokeStyle = pal.ink
+        ctx.lineWidth = r * 0.9 + 3
+        ctx.beginPath()
+        ctx.moveTo(-l, 0)
+        ctx.lineTo(l, 0)
+        ctx.stroke()
+        ctx.strokeStyle = color
+        ctx.lineWidth = r * 0.9
+        ctx.stroke()
+        ctx.fillStyle = pal.bulletCore
+        ctx.beginPath()
+        ctx.arc(l, 0, r * 0.6, 0, TAU)
+        ctx.fill()
+        break
+      }
+      case 4: {
+        // Wisp: weicher Geist mit Schwanz und zwei Augen
+        const wob = Math.sin(t * 14) * r * 0.15
+        ctx.fillStyle = color
+        ctx.strokeStyle = pal.ink
+        ctx.lineWidth = 3
+        ctx.beginPath()
+        ctx.arc(0, 0, r, -Math.PI / 2, Math.PI / 2)
+        ctx.lineTo(-r * 1.9, r * 0.6 + wob)
+        ctx.lineTo(-r * 1.3, 0)
+        ctx.lineTo(-r * 1.9, -r * 0.6 - wob)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = pal.ink
+        ctx.beginPath()
+        ctx.arc(r * 0.2, -r * 0.35, r * 0.17, 0, TAU)
+        ctx.arc(r * 0.2, r * 0.35, r * 0.17, 0, TAU)
+        ctx.fill()
+        break
+      }
+      case 5: {
+        // Kralle: Halbmond
+        ctx.strokeStyle = pal.ink
+        ctx.lineWidth = r * 0.9 + 3
+        ctx.beginPath()
+        ctx.arc(-r * 0.6, 0, r * 1.5, -1.1, 1.1)
+        ctx.stroke()
+        ctx.strokeStyle = color
+        ctx.lineWidth = r * 0.9
+        ctx.stroke()
+        ctx.strokeStyle = pal.bulletCore
+        ctx.lineWidth = r * 0.3
+        ctx.stroke()
+        break
+      }
+      default: {
+        // Blase (Blobby)
+        ctx.beginPath()
+        ctx.arc(0, 0, r + 1.5, 0, TAU)
+        ctx.fillStyle = pal.ink
+        ctx.fill()
+        ctx.beginPath()
+        ctx.arc(0, 0, r, 0, TAU)
+        ctx.fillStyle = color
+        ctx.fill()
+        ctx.beginPath()
+        ctx.arc(-r * 0.2, -r * 0.2, r * 0.45 + Math.sin(t * 30) * 0.2, 0, TAU)
+        ctx.fillStyle = pal.bulletCore
+        ctx.fill()
+      }
+    }
+    ctx.restore()
   }
 
   private drawPlayer(
@@ -724,7 +845,9 @@ export class CanvasRenderer implements Renderer {
     }
     ctx.fillText(name, x, y + 0.5)
     // Lebensbalken (nur wenn nicht voll oder Schild aktiv)
-    if (p.hp < 100 || p.shield > 0) {
+    const maxHp = classOf(p.skin).hp
+    const pct = (p.hp / maxHp) * 100
+    if (p.hp < maxHp || p.shield > 0) {
       const bw = 38
       const bx = p.x - bw / 2
       const by = p.y - r - 16
@@ -739,13 +862,13 @@ export class CanvasRenderer implements Renderer {
       // Nachlaufender Verlust
       if (a.hpTrail > p.hp) {
         ctx.beginPath()
-        ctx.roundRect(bx, by, Math.max(0, (bw * a.hpTrail) / 100), 5, 2.5)
+        ctx.roundRect(bx, by, Math.max(0, (bw * a.hpTrail) / maxHp), 5, 2.5)
         ctx.fillStyle = '#ffffff'
         ctx.fill()
       }
       ctx.beginPath()
-      ctx.roundRect(bx, by, Math.max(0, (bw * p.hp) / 100), 5, 2.5)
-      ctx.fillStyle = p.hp > 50 ? pal.hpGood : p.hp > 25 ? pal.hpMid : pal.hpLow
+      ctx.roundRect(bx, by, Math.max(0, (bw * p.hp) / maxHp), 5, 2.5)
+      ctx.fillStyle = pct > 50 ? pal.hpGood : pct > 25 ? pal.hpMid : pal.hpLow
       ctx.fill()
       if (p.shield > 0) {
         ctx.beginPath()

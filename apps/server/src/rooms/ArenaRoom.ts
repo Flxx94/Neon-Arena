@@ -3,7 +3,7 @@ import {
   INPUT_BURST_TOLERANCE,
   MAX_IDLE_SECONDS,
   MAX_PLAYERS_PER_ROOM,
-  PLAYER_HP,
+  classOf,
   PROTOCOL_V,
   RECONNECT_GRACE_SECONDS,
   TICK_RATE,
@@ -110,8 +110,8 @@ export class ArenaRoom extends Room<ArenaState> {
     }
     const player = new Player()
     player.nickname = parsed.data.nickname
-    player.hp = PLAYER_HP
     player.skin = parsed.data.skin ?? 0
+    player.hp = classOf(player.skin).hp
     const spawn = findSpawn([...this.state.players.values()])
     player.x = spawn.x
     player.y = spawn.y

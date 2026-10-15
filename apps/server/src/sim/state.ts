@@ -28,6 +28,8 @@ export class Projectile extends Schema {
   @type('number') y = 0
   @type('number') vx = 0
   @type('number') vy = 0
+  /** Charakter-Klasse des Schuetzen (= Modellindex): bestimmt Optik, Schaden und Radius. */
+  @type('uint8') kind = 0
 }
 
 export class Pickup extends Schema {
