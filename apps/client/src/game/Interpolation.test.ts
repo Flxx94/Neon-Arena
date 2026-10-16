@@ -18,6 +18,11 @@ function player(id: string, x: number, y: number) {
     skin: 0,
     aim: 0,
     boost: 0,
+    ult: 0,
+    ultTicks: 0,
+    stun: 0,
+    root: 0,
+    realm: 0,
   }
 }
 
