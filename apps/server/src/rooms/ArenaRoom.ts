@@ -9,6 +9,7 @@ import {
   TICK_RATE,
   inputSchema,
   joinSchema,
+  skinChangeSchema,
 } from '@neon-arena/shared'
 import { getSessionStore } from '../auth/sessions.js'
 import { getDb } from '../db/prisma.js'
@@ -75,6 +76,15 @@ export class ArenaRoom extends Room<ArenaState> {
 
     this.onMessage('input', (client, raw) => {
       void this.handleInput(client, raw)
+    })
+    // Charakterwechsel: nur waehrend man tot ist; wirkt ab dem naechsten Respawn (HP/Waffe/Tempo der Klasse).
+    this.onMessage('skin', (client, raw) => {
+      const parsed = skinChangeSchema.safeParse(raw)
+      const player = this.state.players.get(client.sessionId)
+      if (!parsed.success || !player || player.alive || this.state.phase !== 'play') return
+      void checkLimit(getRateStore(), `skin:${client.sessionId}`, 5, 1000).then((ok) => {
+        if (ok && !player.alive) player.skin = parsed.data.skin
+      })
     })
   }
 

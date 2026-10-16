@@ -65,7 +65,7 @@
         </div>
       </div>
       <div id="hint" class="chip">
-        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> bewegen <i>·</i> <kbd>Maus</kbd> zielen <i>·</i> <kbd>Klick</kbd> schießen
+        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> bewegen <i>·</i> <kbd>Maus</kbd> zielen <i>·</i> <kbd>Klick</kbd> schießen <i>·</i> <kbd>Q</kbd> Ult
       </div>
     </div>
 
@@ -75,8 +75,28 @@
         <p id="dead-by"></p>
         <div id="dead-count">3</div>
         <p class="dead-sub">Respawn …</p>
+        <div class="dead-pick">
+          <p class="dead-sub">Figur wechseln</p>
+          <div class="dead-pick-row">
+            <button id="dead-prev" class="icon-btn small" type="button" aria-label="Vorherige Figur">
+              <svg aria-hidden="true"><use href="#i-left" /></svg>
+            </button>
+            <canvas id="dead-preview" width="120" height="120" aria-hidden="true"></canvas>
+            <button id="dead-next" class="icon-btn small" type="button" aria-label="Nächste Figur">
+              <svg aria-hidden="true"><use href="#i-right" /></svg>
+            </button>
+          </div>
+          <div class="dead-pick-info"><b id="dead-model">Blobby</b> <span id="dead-role" class="role-badge">Damage Dealer</span></div>
+          <p id="dead-ult" class="dead-sub"></p>
+        </div>
       </div>
     </div>
+
+    <!-- Ult-Button: Ring = Ladung, Q (Tastatur) oder Tippen -->
+    <button id="ult" class="ui" type="button" hidden aria-label="Ultra-Attacke">
+      <span id="ult-key">Q</span>
+      <span id="ult-name">Ult</span>
+    </button>
 
     <!-- Touch-Steuerung (nur auf Touch-Geraeten im Spiel sichtbar, siehe CSS body.touch.playing) -->
     <div id="touch" class="ui" aria-hidden="true">
@@ -174,6 +194,7 @@
               <span id="attack-name" class="attack-name"></span>
             </div>
             <p id="class-desc" class="class-desc"></p>
+            <p id="class-ult" class="class-ult"></p>
             <dl id="class-stats" class="stats"></dl>
           </div>
           <div id="swatches" class="swatches" role="radiogroup" aria-label="Farbe"></div>

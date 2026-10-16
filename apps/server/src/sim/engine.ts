@@ -21,7 +21,16 @@ import {
   SHIELD_MAX,
   SKIN_COUNT,
   CLASSES,
+  ULT_DEATH_LOSS,
+  ULT_MAX,
+  ULT_PASSIVE_TICKS,
+  ULT_PER_DAMAGE_DEALT,
+  ULT_PER_DAMAGE_TAKEN,
+  ULT_PER_KILL,
   classOf,
+  effectiveCooldown,
+  effectiveSpeed,
+  ultTargetScore,
   classRange,
   skinModel,
   SPAWN_PROTECTION_SECONDS,
@@ -29,6 +38,7 @@ import {
   TICK_RATE,
   resolveArena,
   resolveCircle,
+  resolveRect,
   stepPlayer,
   segmentHitsCircle,
   type PickupKind,
@@ -71,6 +81,11 @@ export interface SimContext {
   botsEnabled: boolean
   /** Events seit letztem Drain (Room broadcastet sie). */
   events: SimEvent[]
+  /** Spieler mit Ult-Wunsch in diesem Tick (idempotent; Server prueft Ladung). */
+  ultReq: Set<string>
+  /** Aktive Geisterwelten: Boo-Id -> Ziel-Id. */
+  ghostTarget: Map<string, string>
+  nextRealm: number
 }
 
 export function createContext(botsEnabled = true): SimContext {
@@ -92,6 +107,9 @@ export function createContext(botsEnabled = true): SimContext {
     botIds: new Set(),
     botsEnabled,
     events: [],
+    ultReq: new Set(),
+    ghostTarget: new Map(),
+    nextRealm: 1,
   }
 }
 
@@ -109,6 +127,8 @@ export function initPlayer(
 }
 
 export function removePlayer(ctx: SimContext, state: ArenaState, sessionId: string): void {
+  endRealmsOf(ctx, state, sessionId)
+  ctx.ultReq.delete(sessionId)
   ctx.inputs.delete(sessionId)
   ctx.inputQueue.delete(sessionId)
   ctx.stalled.delete(sessionId)
@@ -179,6 +199,7 @@ function consumeInputs(ctx: SimContext, state: ArenaState): void {
     if (next) {
       ctx.inputs.set(id, next)
       player.ackSeq = next.seq
+      if (next.ult) ctx.ultReq.add(id)
     } else if (ctx.inputs.has(id)) {
       ctx.stalled.add(id)
     }
@@ -201,6 +222,8 @@ export function update(ctx: SimContext, state: ArenaState): void {
     handleRespawns(ctx, state)
     thinkBots(ctx, state)
     maintainBots(ctx, state)
+    tickStatus(ctx, state)
+    handleUlts(ctx, state)
     movePlayers(ctx, state)
     resolvePlayerCollisions(state)
     fireWeapons(ctx, state)
@@ -257,6 +280,11 @@ function startRound(ctx: SimContext, state: ArenaState): void {
     player.hp = classOf(player.skin).hp
     player.boost = 0
     player.shield = 0
+    player.ult = 0
+    player.ultTicks = 0
+    player.stun = 0
+    player.root = 0
+    player.realm = 0
     player.alive = true
     player.kills = 0
     player.deaths = 0
@@ -271,6 +299,8 @@ function startRound(ctx: SimContext, state: ArenaState): void {
     }
     ctx.histories.set(id, [{ x: player.x, y: player.y }])
   }
+  ctx.ghostTarget.clear()
+  ctx.ultReq.clear()
   state.phase = 'play'
   state.winner = ''
   ctx.roundTicksLeft = ctx.roundTotal
@@ -300,13 +330,15 @@ function movePlayers(ctx: SimContext, state: ArenaState): void {
     if (!player.alive) continue
     const input = ctx.inputs.get(id)
     if (!input || ctx.stalled.has(id)) continue
+    // Betaeubt/festgewurzelt: keine Bewegung (Client-Prediction spiegelt das ueber stun/root).
+    if (player.stun > 0 || player.root > 0) continue
     // Gleiche Schrittfunktion wie die Client-Prediction (shared/physics): Boost inklusive.
     player.boost = stepPlayer(
       player,
       player.boost,
       input.dx,
       input.dy,
-      classOf(player.skin).speed,
+      effectiveSpeed(classOf(player.skin), player.ultTicks),
     )
   }
 }
@@ -317,6 +349,7 @@ function resolvePlayerCollisions(state: ArenaState): void {
     for (let j = i + 1; j < alive.length; j++) {
       const [, a] = alive[i]!
       const [, b] = alive[j]!
+      if (a.realm !== b.realm) continue
       if (resolveCircle(a, PLAYER_RADIUS, b, PLAYER_RADIUS)) {
         resolveArena(a, PLAYER_RADIUS)
         resolveArena(b, PLAYER_RADIUS)
@@ -333,13 +366,19 @@ function fireWeapons(ctx: SimContext, state: ArenaState): void {
     if (!input?.fire || !timers) continue
     // Charakter-Waffe (shared/classes): Abklingzeit, Tempo, Radius, Reichweite je Klasse.
     const cls = classOf(player.skin)
+    if (player.stun > 0) continue // betaeubt: kein Schuss
     // Fire-Rate serverseitig erzwungen (M2-03): zu fruehe Schuesse verfallen.
-    if (ctx.tick - timers.lastFireTick < cls.cooldownTicks) continue
+    if (ctx.tick - timers.lastFireTick < effectiveCooldown(cls, player.ultTicks)) continue
     timers.lastFireTick = ctx.tick
     const proj = new Projectile()
     proj.id = `p${ctx.nextProjectileId++}`
     proj.owner = id
     proj.kind = skinModel(player.skin)
+    // Hexo-Ult: der naechste Schuss ist die Todesnadel (gross, mehr Schaden), danach ist die Ult verbraucht.
+    if (cls.ult.kind === 'snipe' && player.ultTicks > 0) {
+      proj.big = true
+      player.ultTicks = 0
+    }
     const aim = input.aim
     const offset = PLAYER_RADIUS + cls.projectileRadius + 1
     proj.x = player.x + Math.cos(aim) * offset
@@ -387,13 +426,16 @@ function updateProjectiles(ctx: SimContext, state: ArenaState, dt: number): void
 function checkHits(
   ctx: SimContext,
   state: ArenaState,
-  proj: { x: number; y: number; vx: number; vy: number; kind: number; owner: string },
+  proj: { x: number; y: number; vx: number; vy: number; kind: number; owner: string; big: boolean },
   prevX: number,
   prevY: number,
 ): boolean {
   const cls = CLASSES[proj.kind] ?? CLASSES[0]!
+  const ownerRealm = state.players.get(proj.owner)?.realm ?? 0
+  const radius = PLAYER_RADIUS + cls.projectileRadius * (proj.big ? 2 : 1)
   for (const [id, player] of state.players) {
     if (id === proj.owner || !player.alive) continue
+    if (player.realm !== ownerRealm) continue // Geisterwelt: nur Spieler derselben Welt treffen sich
     const timers = ctx.timers.get(id)
     if (timers && ctx.tick < timers.protectedUntil) continue
     const hist = ctx.histories.get(id)
@@ -407,10 +449,10 @@ function checkHits(
         proj.y,
         rewound.x,
         rewound.y,
-        PLAYER_RADIUS + cls.projectileRadius,
+        radius,
       )
     ) {
-      let amount = cls.damage
+      let amount = cls.damage * (proj.big ? cls.ult.damageMult : 1)
       // Rueckenschaden (Kitty): Ziel schaut ungefaehr in Flugrichtung = vom Schuetzen weg (cos > 0.5, +-60 Grad).
       if (cls.backstab > 1) {
         const speed = Math.hypot(proj.vx, proj.vy) || 1
@@ -435,13 +477,19 @@ function damage(
 ): void {
   const victim = state.players.get(victimId)
   if (!victim || !victim.alive) return
-  let rest = amount
+  const victimCls = classOf(victim.skin)
+  // Bollwerk (Cuby-Ult): weniger Schaden waehrend die Ult laeuft.
+  let rest = victim.ultTicks > 0 ? amount * victimCls.ult.damageTakenMult : amount
+  const dealt = rest
   if (victim.shield > 0) {
     const absorbed = Math.min(victim.shield, rest)
     victim.shield -= absorbed
     rest -= absorbed
   }
   victim.hp -= rest
+  // Ult-Aufladung: Schaden austeilen und einstecken laedt (gedeckelt auf ULT_MAX).
+  chargeUlt(state.players.get(killerId), dealt * ULT_PER_DAMAGE_DEALT)
+  chargeUlt(victim, dealt * ULT_PER_DAMAGE_TAKEN)
   // Lifesteal (Boo): Anteil des verursachten Schadens, begrenzt auf die eigenen Max-Lebenspunkte.
   if (lifesteal > 0) {
     const healer = state.players.get(killerId)
@@ -453,14 +501,123 @@ function damage(
   victim.hp = 0
   victim.alive = false
   victim.deaths += 1
+  // Tod: Ult-Ladung teilweise verloren, eine volle Leiste bleibt voll; Effekte enden.
+  if (victim.ult < ULT_MAX) victim.ult = Math.floor(victim.ult * (1 - ULT_DEATH_LOSS))
+  endRealmsOf(ctx, state, victimId)
+  victim.ultTicks = 0
+  victim.stun = 0
+  victim.root = 0
   const killer = state.players.get(killerId)
   if (killer) {
     killer.kills += 1
     killer.score += KILL_SCORE
+    chargeUlt(killer, ULT_PER_KILL)
   }
   const timers = ctx.timers.get(victimId)
   if (timers) timers.respawnAt = ctx.tick + RESPAWN_SECONDS * TICK_RATE
   ctx.events.push({ type: 'kill', by: killer?.nickname ?? '?', victim: victim.nickname })
+}
+
+/** Ult-Ladung erhoehen (gedeckelt). */
+function chargeUlt(player: Player | undefined, amount: number): void {
+  if (!player || !player.alive || amount <= 0) return
+  player.ult = Math.min(ULT_MAX, Math.round(player.ult + amount))
+}
+
+/** Pro Tick: Status-Zaehler herunterzaehlen, passive Aufladung, Geisterwelt beenden. */
+function tickStatus(ctx: SimContext, state: ArenaState): void {
+  const passive = ctx.tick % ULT_PASSIVE_TICKS === 0
+  for (const [id, player] of state.players) {
+    if (!player.alive) continue
+    if (player.stun > 0) player.stun--
+    if (player.root > 0) player.root--
+    if (player.ultTicks > 0) {
+      player.ultTicks--
+      if (player.ultTicks === 0 && ctx.ghostTarget.has(id)) endRealmsOf(ctx, state, id)
+    }
+    if (passive) chargeUlt(player, 1)
+  }
+}
+
+/** Geisterwelt beenden, an der `id` als Boo oder Ziel beteiligt ist. */
+function endRealmsOf(ctx: SimContext, state: ArenaState, id: string): void {
+  for (const [booId, targetId] of ctx.ghostTarget) {
+    if (booId !== id && targetId !== id) continue
+    const boo = state.players.get(booId)
+    const target = state.players.get(targetId)
+    if (boo) {
+      boo.realm = 0
+      boo.ultTicks = 0
+    }
+    if (target) {
+      target.realm = 0
+      target.root = 0
+    }
+    ctx.ghostTarget.delete(booId)
+  }
+}
+
+/** Platziert `p` direkt neben `target` (auf der Seite, von der `p` kommt), ohne in Waenden zu landen. */
+function placeNextTo(p: Player, target: Player): void {
+  let dx = p.x - target.x
+  let dy = p.y - target.y
+  const len = Math.hypot(dx, dy)
+  if (len < 1e-6) {
+    dx = 1
+    dy = 0
+  } else {
+    dx /= len
+    dy /= len
+  }
+  const gap = 2 * PLAYER_RADIUS + 6
+  p.x = target.x + dx * gap
+  p.y = target.y + dy * gap
+  resolveArena(p, PLAYER_RADIUS)
+  for (const o of OBSTACLES) resolveRect(p, PLAYER_RADIUS, o)
+}
+
+/** Ult-Wuensche abarbeiten: nur bei voller Ladung, lebend, nicht betaeubt und ohne laufende Ult. */
+function handleUlts(ctx: SimContext, state: ArenaState): void {
+  if (ctx.ultReq.size === 0) return
+  for (const id of ctx.ultReq) {
+    const caster = state.players.get(id)
+    if (!caster || !caster.alive || caster.ult < ULT_MAX || caster.ultTicks > 0 || caster.stun > 0)
+      continue
+    const def = classOf(caster.skin).ult
+    if (def.range > 0) {
+      // Zielauswahl entlang der Zielrichtung (gleiche Funktion wie die Client-Markierung).
+      const aim = ctx.inputs.get(id)?.aim ?? caster.aim
+      let best: Player | null = null
+      let bestId = ''
+      let bestScore = Infinity
+      for (const [otherId, other] of state.players) {
+        if (otherId === id || !other.alive || other.realm !== 0) continue
+        const score = ultTargetScore(caster.x, caster.y, aim, def.range, other.x, other.y)
+        if (score < bestScore) {
+          bestScore = score
+          best = other
+          bestId = otherId
+        }
+      }
+      if (!best) continue // kein Ziel: Ladung bleibt, Wunsch verfaellt
+      placeNextTo(caster, best)
+      if (def.kind === 'pounce') {
+        best.stun = Math.max(best.stun, def.stunTicks)
+      } else {
+        const realm = ctx.nextRealm
+        ctx.nextRealm = ctx.nextRealm >= 255 ? 1 : ctx.nextRealm + 1
+        caster.realm = realm
+        best.realm = realm
+        best.root = def.durationTicks
+        caster.ultTicks = def.durationTicks
+        ctx.ghostTarget.set(id, bestId)
+      }
+    } else {
+      caster.ultTicks = def.durationTicks
+    }
+    caster.ult = 0
+  }
+  ctx.ultReq.clear()
 }
 
 function pushHistories(ctx: SimContext, state: ArenaState): void {
@@ -490,7 +647,7 @@ function updatePickups(ctx: SimContext, state: ArenaState): void {
     const pickup = state.pickups[i]!
     let taken = false
     for (const player of state.players.values()) {
-      if (!player.alive) continue
+      if (!player.alive || player.realm !== 0) continue
       if (Math.hypot(player.x - pickup.x, player.y - pickup.y) > PLAYER_RADIUS + PICKUP_RADIUS)
         continue
       if (pickup.kind === 'hp') {
@@ -611,6 +768,8 @@ function thinkBots(ctx: SimContext, state: ArenaState): void {
       my /= mag
     }
     const fire = nearestDist < Math.min(BOT_FIRE_RANGE, reach * 0.9) && visible
+    // Bots zuenden die Ult, sobald sie voll ist und ein Gegner in Reichweite ist.
+    if (bot.ult >= ULT_MAX && nearestDist < 450 && visible) ctx.ultReq.add(id)
     ctx.inputs.set(id, { kind: 'input', seq: ctx.tick, dx: mx, dy: my, aim, fire })
     bot.ackSeq = ctx.tick
     bot.aim = quantizeAim(aim)

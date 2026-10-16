@@ -19,6 +19,16 @@ export class Player extends Schema {
   @type('uint8') boost = 0
   /** Letzte vom Server angewendete Input-seq (fuer Client-Reconciliation, M2-05). */
   @type('number') ackSeq = -1
+  /** Ult-Ladung 0..ULT_MAX (Zehntel-Prozent, shared/classes.ts). */
+  @type('uint16') ult = 0
+  /** Verbleibende Ticks der aktiven Ult (0 = inaktiv); bei Hexo: Zeitfenster fuer den Ult-Schuss. */
+  @type('uint8') ultTicks = 0
+  /** Betaeubung: Ticks ohne Bewegung und ohne Schuss (Kitty-Ult). */
+  @type('uint8') stun = 0
+  /** Festgewurzelt: Ticks ohne Bewegung, Schiessen erlaubt (Boo-Geisterwelt). */
+  @type('uint8') root = 0
+  /** Welt-Instanz: 0 = Arena, sonst Geisterwelt-Duell (nur Spieler mit gleicher Zahl sehen/treffen sich). */
+  @type('uint8') realm = 0
 }
 
 export class Projectile extends Schema {
@@ -30,6 +40,8 @@ export class Projectile extends Schema {
   @type('number') vy = 0
   /** Charakter-Klasse des Schuetzen (= Modellindex): bestimmt Optik, Schaden und Radius. */
   @type('uint8') kind = 0
+  /** Ult-Schuss (Hexo-Todesnadel): Clients zeichnen ihn gross. */
+  @type('boolean') big = false
 }
 
 export class Pickup extends Schema {

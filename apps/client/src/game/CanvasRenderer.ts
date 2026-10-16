@@ -3,9 +3,11 @@ import {
   ARENA_WIDTH,
   PICKUP_RADIUS,
   CLASSES,
+  OBSTACLES,
   PLAYER_RADIUS,
   PROJECTILE_RADIUS,
   classOf,
+  classRange,
   skinColor,
   skinModel,
 } from '@neon-arena/shared'
@@ -57,6 +59,17 @@ interface ProjTrack {
   seen: boolean
   shooterId: string | null
   kind: number
+  big: boolean
+}
+
+/** Aura-Farben je Ult-Art. */
+const ULT_COLORS: Record<string, string> = {
+  overdrive: '#ffd23f',
+  bulwark: '#5dff9b',
+  rush: '#3fd8ff',
+  snipe: '#ff4b5c',
+  ghost: '#b57bff',
+  pounce: '#ff7ab8',
 }
 
 interface PickupTrack {
@@ -350,6 +363,7 @@ export class CanvasRenderer implements Renderer {
           seen: true,
           shooterId: shooter?.id ?? null,
           kind: pr.kind,
+          big: pr.big,
         }
         this.projs.set(pr.id, t)
         if (shooter && this.initialized) {
@@ -436,12 +450,15 @@ export class CanvasRenderer implements Renderer {
     const sh = this.fx.shakeOffset()
     this.drawWorld(sh.x, sh.y)
     drawAmbient(ctx, pal, t)
+    if (state.ghost) this.drawGhostWorld(ctx, t)
 
     this.drawPickups(ctx, t)
     const order = [...state.players].filter((p) => p.alive).sort((a, b) => a.y - b.y)
     this.drawShadows(ctx, order, t)
+    if (ownPlayer?.alive) this.drawAimBeam(ctx, ownPlayer, t)
     this.drawProjectiles(ctx, t)
     this.drawBoostAuras(ctx, order, t, dt)
+    this.drawStatusAuras(ctx, order, state.ultTargetId, t)
     for (const p of order) this.drawPlayer(ctx, p, p.id === state.ownId, t)
     this.fx.draw(ctx, pal)
     for (const p of order) this.drawNameplate(ctx, p, p.id === state.ownId)
@@ -453,6 +470,177 @@ export class CanvasRenderer implements Renderer {
     if (own?.alive) this.drawLowHp(ctx, (own.hp / classOf(own.skin).hp) * 100, dt)
     if (state.crosshair && own?.alive)
       this.drawCrosshair(ctx, state.mouse, skinTone(skinColor(own.skin)).base, t)
+  }
+
+  // ------------------------------------------------------------------------------------
+  // Ziel-Balken, Ult-/Status-Auren, Geisterwelt
+  // ------------------------------------------------------------------------------------
+  /** Laenge eines Strahls bis zum ersten Hindernis (Slab-Test gegen die Rechtecke), max `maxLen`. */
+  private rayLength(x: number, y: number, dx: number, dy: number, maxLen: number): number {
+    let best = maxLen
+    for (const o of OBSTACLES) {
+      let t0 = 0
+      let t1 = best
+      for (const [p, d, lo, hi] of [
+        [x, dx, o.x, o.x + o.w],
+        [y, dy, o.y, o.y + o.h],
+      ] as const) {
+        if (Math.abs(d) < 1e-9) {
+          if (p < lo || p > hi) {
+            t1 = -1
+            break
+          }
+        } else {
+          let a = (lo - p) / d
+          let b = (hi - p) / d
+          if (a > b) [a, b] = [b, a]
+          t0 = Math.max(t0, a)
+          t1 = Math.min(t1, b)
+          if (t0 > t1) break
+        }
+      }
+      if (t0 <= t1 && t1 >= 0) best = Math.min(best, Math.max(0, t0))
+    }
+    return best
+  }
+
+  /** Transparenter Balken vom eigenen Charakter in Zielrichtung (Laenge = Waffenreichweite, an Waenden gekappt). */
+  private drawAimBeam(ctx: CanvasRenderingContext2D, p: RenderPlayer, t: number): void {
+    const cls = classOf(p.skin)
+    const maxLen = Math.min(820, Math.max(280, classRange(cls)))
+    const len = this.rayLength(p.x, p.y, Math.cos(p.aim), Math.sin(p.aim), maxLen)
+    if (len < PLAYER_RADIUS + 8) return
+    const tone = skinTone(skinColor(p.skin))
+    const w = Math.max(9, cls.projectileRadius * 3.2)
+    ctx.save()
+    ctx.translate(p.x, p.y)
+    ctx.rotate(p.aim)
+    const g = ctx.createLinearGradient(0, 0, len, 0)
+    g.addColorStop(0, alpha(tone.base, 0.32))
+    g.addColorStop(1, alpha(tone.base, 0))
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.roundRect(PLAYER_RADIUS, -w / 2, len - PLAYER_RADIUS, w, w / 2)
+    ctx.fill()
+    // feine Mittellinie, leicht laufend
+    ctx.strokeStyle = alpha(tone.light, 0.34)
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([10, 12])
+    ctx.lineDashOffset = -t * 40
+    ctx.beginPath()
+    ctx.moveTo(PLAYER_RADIUS + 4, 0)
+    ctx.lineTo(len, 0)
+    ctx.stroke()
+    ctx.restore()
+  }
+
+  /** Aktive Ult (Ring), Betaeubung (Sterne), Wurzel (Kette) und Ziel-Markierung der Ziel-Ult. */
+  private drawStatusAuras(
+    ctx: CanvasRenderingContext2D,
+    order: RenderPlayer[],
+    targetId: string | null,
+    t: number,
+  ): void {
+    const r = PLAYER_RADIUS * MODEL_SCALE
+    for (const p of order) {
+      if (p.ultTicks > 0) {
+        const color = ULT_COLORS[classOf(p.skin).ult.kind] ?? '#ffd23f'
+        const pulse = 1 + Math.sin(t * 10) * 0.07
+        ctx.save()
+        ctx.translate(p.x, p.y)
+        ctx.lineWidth = 4
+        ctx.strokeStyle = alpha(color, 0.9)
+        ctx.fillStyle = alpha(color, 0.14)
+        ctx.setLineDash([14, 8])
+        ctx.lineDashOffset = -t * 60
+        ctx.beginPath()
+        ctx.arc(0, 0, r * 2 * pulse, 0, TAU)
+        ctx.fill()
+        ctx.stroke()
+        ctx.restore()
+      }
+      if (p.root > 0) {
+        ctx.save()
+        ctx.translate(p.x, p.y + r * 0.6)
+        ctx.strokeStyle = alpha('#b57bff', 0.9)
+        ctx.lineWidth = 3
+        ctx.setLineDash([6, 5])
+        ctx.beginPath()
+        ctx.ellipse(0, 0, r * 1.5, r * 0.6, 0, 0, TAU)
+        ctx.stroke()
+        ctx.restore()
+      }
+      if (p.stun > 0) {
+        ctx.save()
+        ctx.translate(p.x, p.y - r - 18)
+        ctx.font = `900 16px ${FONT}`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        for (let i = 0; i < 3; i++) {
+          const a = t * 5 + (i * TAU) / 3
+          ctx.fillStyle = '#ffd23f'
+          ctx.strokeStyle = this.pal.ink
+          ctx.lineWidth = 3
+          const sx = Math.cos(a) * 15
+          const sy = Math.sin(a) * 5
+          ctx.strokeText('★', sx, sy)
+          ctx.fillText('★', sx, sy)
+        }
+        ctx.restore()
+      }
+      if (p.id === targetId) {
+        ctx.save()
+        ctx.translate(p.x, p.y)
+        ctx.rotate(t * 2)
+        ctx.strokeStyle = '#ff4b5c'
+        ctx.lineWidth = 3.5
+        for (let i = 0; i < 4; i++) {
+          ctx.rotate(Math.PI / 2)
+          ctx.beginPath()
+          ctx.arc(0, 0, r * 1.9, -0.35, 0.35)
+          ctx.stroke()
+        }
+        ctx.restore()
+      }
+    }
+  }
+
+  /** Geisterwelt: dunkles Violett ueber der Welt + driftende Geister-Partikel (Bildschirmraum). */
+  private drawGhostWorld(ctx: CanvasRenderingContext2D, t: number): void {
+    const { w, h, dpr } = this.view
+    ctx.save()
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.fillStyle = 'rgba(14, 4, 34, 0.7)'
+    ctx.fillRect(0, 0, w, h)
+    const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.2, w / 2, h / 2, Math.max(w, h) * 0.75)
+    g.addColorStop(0, 'rgba(120, 60, 200, 0)')
+    g.addColorStop(1, 'rgba(60, 10, 110, 0.55)')
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, w, h)
+    for (let i = 0; i < 38; i++) {
+      const sp = 0.25 + ((i * 37) % 10) / 20
+      const x = ((((i * 97) % 100) / 100) * w + Math.sin(t * sp + i) * 40 + w) % w
+      const y = (((((i * 53) % 100) / 100) * h - t * 28 * sp) % h + h) % h
+      const s = 2 + ((i * 7) % 5)
+      ctx.fillStyle = `rgba(${190 + ((i * 11) % 60)}, ${150 + ((i * 5) % 60)}, 255, ${0.25 + 0.2 * Math.sin(t * 2 + i)})`
+      ctx.beginPath()
+      ctx.arc(x, y, s, 0, TAU)
+      ctx.fill()
+      if (i % 6 === 0) {
+        // kleine Geister
+        ctx.fillStyle = 'rgba(235, 225, 255, 0.16)'
+        ctx.beginPath()
+        ctx.arc(x, y, 14, Math.PI, 0)
+        ctx.lineTo(x + 14, y + 16)
+        ctx.lineTo(x + 7, y + 11)
+        ctx.lineTo(x, y + 16)
+        ctx.lineTo(x - 7, y + 11)
+        ctx.lineTo(x - 14, y + 16)
+        ctx.closePath()
+        ctx.fill()
+      }
+    }
+    ctx.restore()
   }
 
   private boostTrailAt = new Map<string, number>()
@@ -587,7 +775,7 @@ export class CanvasRenderer implements Renderer {
   private drawProjectiles(ctx: CanvasRenderingContext2D, t: number): void {
     const pal = this.pal
     for (const tr of this.projs.values()) {
-      const pr = (CLASSES[tr.kind] ?? CLASSES[0]!).projectileRadius
+      const pr = (CLASSES[tr.kind] ?? CLASSES[0]!).projectileRadius * (tr.big ? 2 : 1)
       // Schweif
       const pts = [...tr.trail, { x: tr.x, y: tr.y }]
       const last = pts[pts.length - 2] ?? pts[0]!

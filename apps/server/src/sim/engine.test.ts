@@ -11,8 +11,14 @@ import {
   PLAYER_SPEED,
   PROJECTILE_DAMAGE,
   RESPAWN_SECONDS,
+  ROUND_END_SECONDS,
   SKIN_COUNT,
   TICK_RATE,
+  ULT_DEATH_LOSS,
+  ULT_MAX,
+  ULT_PASSIVE_TICKS,
+  ULT_PER_DAMAGE_DEALT,
+  ULT_PER_DAMAGE_TAKEN,
 } from '@neon-arena/shared'
 import {
   applyInput,
@@ -464,6 +470,217 @@ describe('engine Input-Queue + Boost', () => {
       state.pickups.push(pu)
       update(ctx, state)
       expect(tank.hp).toBe(CLASSES[1]!.hp)
+    })
+  })
+
+  describe('Ults', () => {
+    function world(models: number[], gap = 200, x0 = 150, y0 = 30) {
+      const ctx = createContext(false)
+      const state = new ArenaState()
+      const ps = models.map((m, i) => {
+        const id = `p${i}`
+        const p = addPlayer(state, id, x0 + i * gap, y0)
+        p.skin = m
+        p.hp = classOf(m).hp
+        initPlayer(ctx, id, { x: p.x, y: p.y })
+        ctx.timers.get(id)!.protectedUntil = -1
+        return p
+      })
+      return { ctx, state, ps }
+    }
+    const idOf = (i: number) => `p${i}`
+    let seqN = 100
+    function press(ctx: ReturnType<typeof createContext>, state: ArenaState, i: number, extra = {}) {
+      applyInput(ctx, state, idOf(i), { ...input(seqN++, 0, 0, 0, false), ult: true, ...extra })
+    }
+    function idle(ctx: ReturnType<typeof createContext>, state: ArenaState, i: number, extra = {}) {
+      applyInput(ctx, state, idOf(i), { ...input(seqN++, 0, 0, 0, false), ...extra })
+    }
+    function run(ctx: ReturnType<typeof createContext>, state: ArenaState, ticks: number) {
+      for (let i = 0; i < ticks; i++) update(ctx, state)
+    }
+
+    it('Aufladung: Schaden austeilen/einstecken, Kill und Zeit laden; gedeckelt auf ULT_MAX', () => {
+      const { ctx, state, ps } = world([0, 0], 150)
+      ps[1]!.aim = Math.PI
+      applyInput(ctx, state, 'p0', input(1, 0, 0, 0, true))
+      run(ctx, state, 12)
+      expect(ps[0]!.ult).toBeGreaterThanOrEqual(Math.round(25 * ULT_PER_DAMAGE_DEALT))
+      expect(ps[1]!.ult).toBeGreaterThanOrEqual(Math.round(25 * ULT_PER_DAMAGE_TAKEN))
+      ps[0]!.ult = ULT_MAX - 1
+      run(ctx, state, 40)
+      expect(ps[0]!.ult).toBe(ULT_MAX)
+    })
+
+    it('Passiv: +1 alle ULT_PASSIVE_TICKS Ticks', () => {
+      const { ctx, state, ps } = world([0], 150)
+      run(ctx, state, ULT_PASSIVE_TICKS * 5)
+      expect(ps[0]!.ult).toBe(5)
+    })
+
+    it('Tod: nicht volle Ult verliert 35 %, volle bleibt voll', () => {
+      for (const [start, expected] of [
+        [600, Math.floor(600 * (1 - ULT_DEATH_LOSS))],
+        [ULT_MAX, ULT_MAX],
+      ] as const) {
+        const { ctx, state, ps } = world([1, 0], 150)
+        ps[1]!.ult = start
+        ps[1]!.hp = 1
+        applyInput(ctx, state, 'p0', input(1, 0, 0, 0, true))
+        run(ctx, state, 12)
+        expect(ps[1]!.alive).toBe(false)
+        // Nach dem Tod keine Aufladung mehr, nur der Verlust (+ evtl. Treffer-Ladung vor dem Tod).
+        expect(ps[1]!.ult).toBeLessThanOrEqual(expected + Math.round(ULT_PER_DAMAGE_TAKEN * 40))
+        expect(ps[1]!.ult).toBeGreaterThanOrEqual(expected)
+        if (start === ULT_MAX) expect(ps[1]!.ult).toBe(ULT_MAX)
+      }
+    })
+
+    it('Ult nur bei voller Ladung; danach Ladung 0', () => {
+      const { ctx, state, ps } = world([0], 150)
+      press(ctx, state, 0)
+      run(ctx, state, 2)
+      expect(ps[0]!.ultTicks).toBe(0)
+      ps[0]!.ult = ULT_MAX
+      press(ctx, state, 0)
+      run(ctx, state, 2)
+      expect(ps[0]!.ultTicks).toBeGreaterThan(0)
+      expect(ps[0]!.ult).toBeLessThan(20)
+    })
+
+    it('Blasenflut: Feuerrate steigt, Bollwerk: Schaden sinkt, Blitzrausch: Tempo steigt', () => {
+      const shots = (ultOn: boolean) => {
+        const { ctx, state, ps } = world([0], 1500)
+        if (ultOn) {
+          ps[0]!.ult = ULT_MAX
+          press(ctx, state, 0)
+        }
+        applyInput(ctx, state, 'p0', { ...input(seqN++, 0, 0, 0, true), ult: ultOn })
+        const seen = new Set<string>()
+        for (let i = 0; i < 60; i++) {
+          update(ctx, state)
+          for (const p of state.projectiles) seen.add(p.id)
+        }
+        return seen.size
+      }
+      expect(shots(true)).toBeGreaterThan(shots(false) * 2)
+
+      const hit = (ultOn: boolean) => {
+        const { ctx, state, ps } = world([0, 1], 150)
+        ps[1]!.aim = Math.PI
+        if (ultOn) {
+          ps[1]!.ult = ULT_MAX
+          press(ctx, state, 1)
+        }
+        applyInput(ctx, state, 'p0', input(seqN++, 0, 0, 0, true))
+        run(ctx, state, 12)
+        return classOf(1).hp - ps[1]!.hp
+      }
+      expect(hit(true)).toBeCloseTo(hit(false) * CLASSES[1]!.ult.damageTakenMult, 3)
+
+      const { ctx, state, ps } = world([2], 150)
+      ps[0]!.ult = ULT_MAX
+      press(ctx, state, 0)
+      run(ctx, state, 2)
+      const x0 = ps[0]!.x
+      applyInput(ctx, state, 'p0', input(seqN++, 1, 0))
+      update(ctx, state)
+      expect(ps[0]!.x - x0).toBeCloseTo((CLASSES[2]!.speed * CLASSES[2]!.ult.speedMult) / TICK_RATE, 4)
+    })
+
+    it('Todesnadel: naechster Schuss ist gross, macht mehr Schaden, verbraucht die Ult', () => {
+      const { ctx, state, ps } = world([3, 1], 400)
+      ps[1]!.aim = Math.PI
+      ps[0]!.ult = ULT_MAX
+      press(ctx, state, 0)
+      run(ctx, state, 2)
+      expect(ps[0]!.ultTicks).toBeGreaterThan(0)
+      applyInput(ctx, state, 'p0', input(seqN++, 0, 0, 0, true))
+      update(ctx, state)
+      expect(state.projectiles[0]!.big).toBe(true)
+      expect(ps[0]!.ultTicks).toBe(0)
+      run(ctx, state, 30)
+      expect(classOf(1).hp - ps[1]!.hp).toBeCloseTo(CLASSES[3]!.damage * CLASSES[3]!.ult.damageMult, 3)
+    })
+
+    it('Schattensprung (Kitty): springt zum Ziel, betaeubt es ~2 s, Betaeubte stehen und schiessen nicht', () => {
+      const { ctx, state, ps } = world([5, 0], 400)
+      ps[0]!.ult = ULT_MAX
+      press(ctx, state, 0)
+      update(ctx, state)
+      expect(Math.hypot(ps[0]!.x - ps[1]!.x, ps[0]!.y - ps[1]!.y)).toBeLessThan(2 * PLAYER_RADIUS + 12)
+      expect(ps[1]!.stun).toBeGreaterThan(CLASSES[5]!.ult.stunTicks - 3)
+      const x0 = ps[1]!.x
+      applyInput(ctx, state, 'p1', input(seqN++, 1, 0, 0, true))
+      run(ctx, state, 10)
+      expect(ps[1]!.x).toBe(x0)
+      expect(state.projectiles.length).toBe(0)
+      run(ctx, state, CLASSES[5]!.ult.stunTicks)
+      expect(ps[1]!.stun).toBe(0)
+      applyInput(ctx, state, 'p1', input(seqN++, 1, 0))
+      update(ctx, state)
+      expect(ps[1]!.x).toBeGreaterThan(x0)
+    })
+
+    it('Ult mit Ziel ohne Gegner im Zielkegel: keine Aktivierung, Ladung bleibt', () => {
+      const { ctx, state, ps } = world([5, 0], 400)
+      ps[0]!.ult = ULT_MAX
+      press(ctx, state, 0, { aim: Math.PI / 2 })
+      run(ctx, state, 2)
+      expect(ps[0]!.ult).toBe(ULT_MAX)
+      expect(ps[1]!.stun).toBe(0)
+    })
+
+    it('Geisterwelt (Boo): gemeinsame Welt, Ziel gewurzelt, Dritte treffen/sehen sich nicht, Ende nach Dauer', () => {
+      const { ctx, state, ps } = world([4, 0, 0], 300)
+      ps[0]!.ult = ULT_MAX
+      press(ctx, state, 0)
+      update(ctx, state)
+      expect(ps[0]!.realm).not.toBe(0)
+      expect(ps[1]!.realm).toBe(ps[0]!.realm)
+      expect(ps[2]!.realm).toBe(0)
+      expect(ps[1]!.root).toBeGreaterThan(0)
+      // Dritter schiesst auf Ziel in der Geisterwelt: kein Schaden.
+      ps[2]!.x = ps[1]!.x + 200
+      ps[2]!.y = ps[1]!.y
+      const hp = ps[1]!.hp
+      applyInput(ctx, state, 'p2', input(seqN++, 0, 0, Math.PI, true))
+      run(ctx, state, 10)
+      expect(ps[1]!.hp).toBe(hp)
+      // Boo trifft das Ziel (gleiche Welt).
+      applyInput(ctx, state, 'p0', input(seqN++, 0, 0, Math.atan2(ps[1]!.y - ps[0]!.y, ps[1]!.x - ps[0]!.x), true))
+      run(ctx, state, 10)
+      expect(ps[1]!.hp).toBeLessThan(hp)
+      // Ende
+      run(ctx, state, CLASSES[4]!.ult.durationTicks)
+      expect(ps[0]!.realm).toBe(0)
+      expect(ps[1]!.realm).toBe(0)
+      expect(ps[1]!.root).toBe(0)
+    })
+
+    it('Geisterwelt endet sofort, wenn Boo oder das Ziel stirbt', () => {
+      const { ctx, state, ps } = world([4, 0], 300)
+      ps[0]!.ult = ULT_MAX
+      press(ctx, state, 0)
+      update(ctx, state)
+      ps[1]!.hp = 1
+      applyInput(ctx, state, 'p0', input(seqN++, 0, 0, Math.atan2(ps[1]!.y - ps[0]!.y, ps[1]!.x - ps[0]!.x), true))
+      run(ctx, state, 10)
+      expect(ps[1]!.alive).toBe(false)
+      expect(ps[0]!.realm).toBe(0)
+      expect(ps[0]!.ultTicks).toBe(0)
+      expect(ctx.ghostTarget.size).toBe(0)
+    })
+
+    it('Rundenstart setzt Ult und Status zurueck; idle-Input haelt nichts am Leben', () => {
+      const { ctx, state, ps } = world([5, 0], 400)
+      ps[0]!.ult = ULT_MAX
+      ps[1]!.stun = 50
+      idle(ctx, state, 0)
+      ctx.roundTicksLeft = 1
+      run(ctx, state, 2 + ROUND_END_SECONDS * TICK_RATE + 2)
+      expect(ps[0]!.ult).toBeLessThan(20)
+      expect(ps[1]!.stun).toBe(0)
     })
   })
 })

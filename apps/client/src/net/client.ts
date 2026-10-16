@@ -26,12 +26,21 @@ export interface ClientPlayer {
   skin: number
   aim: number
   boost: number
+  /** Ult-Ladung 0..ULT_MAX und Status-Zaehler (Ult aktiv, betaeubt, gewurzelt, Geisterwelt-Instanz). */
+  ult: number
+  ultTicks: number
+  stun: number
+  root: number
+  realm: number
 }
 
 export interface ClientProjectile {
   id: string
   x: number
   y: number
+  owner: string
+  /** Ult-Schuss (Todesnadel). */
+  big: boolean
   /** Charakter-Klasse des Schuetzen (Modellindex): bestimmt Optik/Sound. */
   kind: number
 }
@@ -94,6 +103,11 @@ export class NetClient {
             skin: number
             aim: number
             boost: number
+            ult?: number
+            ultTicks?: number
+            stun?: number
+            root?: number
+            realm?: number
           },
         ]) => ({
           id,
@@ -111,14 +125,28 @@ export class NetClient {
           skin: p.skin,
           aim: p.aim,
           boost: p.boost ?? 0,
+          ult: p.ult ?? 0,
+          ultTicks: p.ultTicks ?? 0,
+          stun: p.stun ?? 0,
+          root: p.root ?? 0,
+          realm: p.realm ?? 0,
         }),
       )
       const projectiles: ClientProjectile[] = [...state.projectiles.values()].map(
-        (p: { id: string; x: number; y: number; kind?: number }) => ({
+        (p: {
+          id: string
+          x: number
+          y: number
+          kind?: number
+          owner?: string
+          big?: boolean
+        }) => ({
           id: p.id,
           x: p.x,
           y: p.y,
           kind: p.kind ?? 0,
+          owner: p.owner ?? '',
+          big: p.big ?? false,
         }),
       )
       const pickups: ClientPickup[] = [...state.pickups.values()].map(
@@ -147,11 +175,16 @@ export class NetClient {
   }
 
   /** Wird vom Game-Loop mit 30 Hz aufgerufen; seq steigt pro Input. Gibt seq zurueck. */
-  sendInput(dx: number, dy: number, aim: number, fire: boolean): number {
+  sendInput(dx: number, dy: number, aim: number, fire: boolean, ult = false): number {
     if (!this.room) return -1
     const seq = this.seq++
-    this.room.send('input', { kind: 'input', seq, dx, dy, aim, fire })
+    this.room.send('input', ult ? { kind: 'input', seq, dx, dy, aim, fire, ult } : { kind: 'input', seq, dx, dy, aim, fire })
     return seq
+  }
+
+  /** Charakterwechsel (nur waehrend man tot ist; sonst ignoriert der Server die Nachricht). */
+  changeSkin(skin: number): void {
+    this.room?.send('skin', { skin })
   }
 
   leave(): void {

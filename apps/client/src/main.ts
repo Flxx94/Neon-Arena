@@ -15,6 +15,10 @@ import {
   makeSkin,
   skinColor,
   skinModel,
+  ULT_MAX,
+  effectiveCooldown,
+  effectiveSpeed,
+  ultTargetScore,
 } from '@neon-arena/shared'
 import { SoundFX } from './game/Audio.js'
 import { CanvasRenderer, frameTime } from './game/CanvasRenderer.js'
@@ -82,6 +86,13 @@ const settingsEl = $<HTMLDivElement>('settings')
 const deadEl = $<HTMLDivElement>('dead')
 const deadBy = $<HTMLParagraphElement>('dead-by')
 const deadCount = $<HTMLDivElement>('dead-count')
+const deadPreview = new ModelPreview($<HTMLCanvasElement>('dead-preview'), 1)
+const deadModelName = $<HTMLElement>('dead-model')
+const deadRole = $<HTMLElement>('dead-role')
+const deadUlt = $<HTMLElement>('dead-ult')
+const ultBtn = $<HTMLButtonElement>('ult')
+const ultNameEl = $<HTMLSpanElement>('ult-name')
+const ultKeyEl = $<HTMLSpanElement>('ult-key')
 const scoreEl = $<HTMLDivElement>('scoreboard')
 const feedEl = $<HTMLDivElement>('killfeed')
 const roundEl = $<HTMLDivElement>('round')
@@ -273,6 +284,7 @@ const classInfo = $<HTMLDivElement>('class-info')
 const roleBadge = $<HTMLSpanElement>('role-badge')
 const attackName = $<HTMLSpanElement>('attack-name')
 const classDesc = $<HTMLParagraphElement>('class-desc')
+const classUlt = $<HTMLParagraphElement>('class-ult')
 const statsEl = $<HTMLDListElement>('class-stats')
 const STAT_DEFS: { label: string; get: (c: (typeof CLASSES)[number]) => number }[] = [
   { label: 'Leben', get: (c) => c.hp },
@@ -302,6 +314,7 @@ function syncClassInfo(): void {
   roleBadge.textContent = ROLE_LABELS[c.role]
   attackName.textContent = c.attack
   classDesc.textContent = c.description
+  classUlt.textContent = `Ult · ${c.ult.name}: ${c.ult.description}`
   for (const { def, fill, num, max } of statRows) {
     const v = def.get(c)
     fill.style.setProperty('--v', String(Math.max(0.08, v / max)))
@@ -613,6 +626,27 @@ function pushKill(by: string, victim: string): void {
   }
 }
 
+/** Charakterwechsel waehrend man tot ist: wirkt ab dem naechsten Respawn (Server uebernimmt Klasse). */
+function syncDeadPicker(): void {
+  const c = CLASSES[model]
+  if (!c) return
+  deadPreview.setSkin(currentSkin(), true)
+  deadModelName.textContent = MODEL_NAMES[model] ?? ''
+  deadRole.textContent = ROLE_LABELS[c.role]
+  deadRole.dataset.role = c.role
+  deadUlt.textContent = `${c.attack} · Ult: ${c.ult.name}`
+}
+function changeCharacter(step: number): void {
+  model = (model + step + MODEL_COUNT) % MODEL_COUNT
+  net.changeSkin(currentSkin())
+  hudAvatar.setSkin(currentSkin())
+  syncPicker(true) // Lobby-Anzeige + Speichern am Konto
+  syncDeadPicker()
+  sfx.uiStart()
+}
+$<HTMLButtonElement>('dead-prev').addEventListener('click', () => changeCharacter(-1))
+$<HTMLButtonElement>('dead-next').addEventListener('click', () => changeCharacter(1))
+
 function updateDeadOverlay(own: ClientPlayer | undefined): void {
   const show = !!own && !own.alive && phase === 'play'
   if (show) {
@@ -620,6 +654,11 @@ function updateDeadOverlay(own: ClientPlayer | undefined): void {
       deadEl.hidden = false
       deadAt = performance.now()
       lastDeadCount = -1
+      if (own) {
+        model = skinModel(own.skin)
+        color = skinColor(own.skin)
+      }
+      syncDeadPicker()
       deadBy.textContent = lastKiller && lastKiller !== '?' ? `von ${lastKiller}` : ''
     }
     const left = Math.max(1, Math.ceil(RESPAWN_SECONDS - (performance.now() - deadAt) / 1000))
@@ -774,7 +813,7 @@ playBtn.addEventListener('click', () => {
         }
         const own = players.find((p) => p.id === net.sessionId)
         if (own) {
-          prediction.speed = classOf(own.skin).speed
+          prediction.speed = effectiveSpeed(classOf(own.skin), own.ultTicks)
           prediction.reconcile(own.x, own.y, own.ackSeq, own.boost)
         }
       },
@@ -887,24 +926,46 @@ function currentAim(): number {
 const TICK_MS = 1000 / TICK_RATE
 let tickAcc = 0
 let lastShootSfx = 0
+/** Ult-Wunsch (Q / Button): wird ~350 ms lang mitgesendet, bis der Server die Ult gestartet hat (idempotent). */
+let ultWantUntil = 0
+let lastUlt = 0
+function wantUlt(): void {
+  ultWantUntil = performance.now() + 350
+}
+ultBtn.addEventListener('pointerdown', (e) => {
+  e.preventDefault()
+  wantUlt()
+})
 function inputTick(): void {
   if (!connected) return
   const { dx, dy } = touchMode && touch.moving ? touch.move : input.readMove()
   const aim = currentAim()
-  const firing = (input.firing || touch.firing) && settingsClosed()
-  const seq = net.sendInput(dx, dy, aim, firing)
+  const own = players.find((p) => p.id === net.sessionId)
+  const stunned = !!own && own.stun > 0
+  const firing = (input.firing || touch.firing) && settingsClosed() && !stunned
+  if (input.takeUlt()) wantUlt()
+  const ultNow =
+    performance.now() < ultWantUntil &&
+    !!own?.alive &&
+    own.ult >= ULT_MAX &&
+    own.ultTicks === 0 &&
+    own.stun === 0
+  const seq = net.sendInput(dx, dy, aim, firing, ultNow)
   if (seq >= 0) {
     const now = performance.now()
-    const own = players.find((p) => p.id === net.sessionId)
-    if (own) prediction.speed = classOf(own.skin).speed
-    const cooldownMs = own ? (classOf(own.skin).cooldownTicks / TICK_RATE) * 1000 : 250
+    if (own) prediction.speed = effectiveSpeed(classOf(own.skin), own.ultTicks)
+    const cooldownMs = own
+      ? (effectiveCooldown(classOf(own.skin), own.ultTicks) / TICK_RATE) * 1000
+      : 250
     if (firing && own?.alive && now - lastShootSfx > cooldownMs) {
       lastShootSfx = now
       activity = Math.min(1, activity + 0.04)
       sfx.shoot(undefined, true, own.skin % MODEL_COUNT)
     }
     const boostBefore = prediction.boostLeft
-    prediction.applyLocal({ seq, dx, dy })
+    // Betaeubt/festgewurzelt: der Server bewegt nicht, also sagt die Prediction auch keine Bewegung voraus.
+    const held = !!own && (own.stun > 0 || own.root > 0)
+    prediction.applyLocal({ seq, dx: held ? 0 : dx, dy: held ? 0 : dy })
     if (boostBefore <= 0 && prediction.boostLeft > 0 && own?.alive) {
       sfx.boost()
       renderer.fx.text(prediction.predicted.x, prediction.predicted.y - 34, 'BOOST!', '#ffd23f', 20)
@@ -956,7 +1017,36 @@ function renderScoreboard(): void {
   })
 }
 
+function updateUlt(own: ClientPlayer | undefined): void {
+  ultBtn.hidden = !own || !connected
+  if (!own) return
+  const c = classOf(own.skin)
+  ultBtn.style.setProperty('--p', String(Math.min(100, (own.ult / ULT_MAX) * 100)))
+  ultBtn.dataset.role = c.role
+  const ready = own.alive && own.ult >= ULT_MAX && own.ultTicks === 0
+  ultBtn.classList.toggle('ready', ready)
+  ultBtn.classList.toggle('active', own.ultTicks > 0)
+  ultNameEl.textContent = c.ult.name
+  ultKeyEl.textContent = touchMode ? '★' : 'Q'
+  const requested = ultWantUntil > 0
+  if (own.ult >= ULT_MAX && lastUlt < ULT_MAX) {
+    sfx.ultReady()
+    showToast('ULT bereit!', '#ffd23f')
+  }
+  if (lastUlt >= ULT_MAX && own.ult < ULT_MAX && requested && own.alive) {
+    sfx.ult()
+    const pos = prediction.predicted
+    renderer.fx.text(pos.x, pos.y - 40, c.ult.name.toUpperCase() + '!', '#ffd23f', 24)
+    renderer.fx.confetti(pos.x, pos.y, 50)
+    renderer.fx.shake(5)
+    activity = Math.min(1, activity + 0.5)
+  }
+  if (own.ultTicks > 0 || own.ult < ULT_MAX) ultWantUntil = 0
+  lastUlt = own.ult
+}
+
 function updateHud(own: ClientPlayer | undefined): void {
+  updateUlt(own)
   if (own) {
     const hp = Math.max(0, Math.round(own.hp))
     hpNum.textContent = String(hp)
@@ -1043,19 +1133,42 @@ function frame() {
   const liveAim = currentAim()
   const ownPos = prediction.renderPos(tickAcc / TICK_MS)
   lastOwnRender = ownPos
-  const rendered = players.map((p) => {
+  const ownNow = players.find((p) => p.id === ownId)
+  const ownRealm = ownNow?.realm ?? 0
+  const rendered = players
+    .filter((p) => p.id === ownId || p.realm === ownRealm) // Geisterwelt: nur Mitspieler derselben Welt sichtbar
+    .map((p) => {
     if (p.id === ownId)
       return { ...p, x: ownPos.x, y: ownPos.y, aim: liveAim, boost: prediction.boostLeft }
     const interpPos = interp.sample(p.id, now)
     return interpPos ? { ...p, x: interpPos.x, y: interpPos.y } : p
   })
+  const realmOf = new Map(players.map((p) => [p.id, p.realm]))
+  // Ziel-Markierung fuer Ults mit Zielauswahl (gleiche Bewertung wie der Server).
+  let ultTargetId: string | null = null
+  if (ownNow?.alive && ownNow.ult >= ULT_MAX && ownNow.ultTicks === 0) {
+    const range = classOf(ownNow.skin).ult.range
+    if (range > 0) {
+      let best = Infinity
+      for (const p of rendered) {
+        if (p.id === ownId || !p.alive || p.realm !== 0) continue
+        const sc = ultTargetScore(ownPos.x, ownPos.y, liveAim, range, p.x, p.y)
+        if (sc < best) {
+          best = sc
+          ultTargetId = p.id
+        }
+      }
+    }
+  }
   renderer.render({
     players: rendered,
-    projectiles,
-    pickups,
+    projectiles: projectiles.filter((pr) => (realmOf.get(pr.owner) ?? 0) === ownRealm),
+    pickups: ownRealm === 0 ? pickups : [],
     ownId,
     mouse: { x: input.mouseX, y: input.mouseY },
     crosshair: settingsClosed() && !touchMode,
+    ghost: ownRealm !== 0,
+    ultTargetId,
   })
   renderScoreboard()
 

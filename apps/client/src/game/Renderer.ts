@@ -15,6 +15,10 @@ export interface RenderPlayer {
   /** Verbleibende Boost-Ticks (0 = keiner): Speed-Streifen + Aura. */
   boost: number
   isBot: boolean
+  /** Ult-Status (aktiv / betaeubt / gewurzelt) fuer Auren. */
+  ultTicks: number
+  stun: number
+  root: number
 }
 
 export interface RenderProjectile {
@@ -22,6 +26,8 @@ export interface RenderProjectile {
   x: number
   y: number
   kind: number
+  /** Ult-Schuss: gross zeichnen. */
+  big: boolean
 }
 
 export interface RenderPickup {
@@ -40,6 +46,10 @@ export interface RenderState {
   mouse: { x: number; y: number }
   /** Fadenkreuz zeichnen (nur im Spiel). */
   crosshair: boolean
+  /** Eigener Spieler ist in einer Geisterwelt: dunkle Welt mit Partikeln. */
+  ghost: boolean
+  /** Spieler, der von der Ziel-Ult (Boo/Kitty) gerade anvisiert wuerde. */
+  ultTargetId: string | null
 }
 
 /** Ereignisse, die der Renderer aus Zustandsdifferenzen ableitet (fuer Sound/HUD in main.ts). */
