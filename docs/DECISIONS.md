@@ -70,3 +70,22 @@
   - Balance: `classPower` (DPS x Leben x Tempo, Lifesteal/Rueckenbonus gewichtet) liegt in +-30 % des Mittels (Test); Cooldown >= 6 Ticks und
     max. gleichzeitige Projektile je Spieler <= Standardwaffe (Test) -> Serverlast nicht hoeher als vorher. Bots nutzen Klassenreichweite.
   - Lobby zeigt Rolle, Attackenname, Kurzbeschreibung und Wertebalken.
+
+## ADR-007: Ultra-Attacken, Charakterwechsel beim Tod, Zielbalken
+- Status: akzeptiert (2026-10-16)
+- Entscheidung:
+  - Jede Figur hat genau eine Ult (`UltDef` in `shared/classes.ts`). Ladung `Player.ult` (uint16, 0..`ULT_MAX`=1000): Schaden austeilen (+1.5/Schaden),
+    einstecken (+0.8/Schaden), Kill (+100), passiv +1 alle 8 Ticks. Tod: 35 % der Ladung gehen verloren; eine **volle** Leiste bleibt voll, bis sie benutzt wird.
+    Rundenstart setzt Ladung und Status zurueck.
+  - Ausloesen: `input.ult` (optional, idempotent; Q bzw. Touch-Button). Der Server prueft Ladung, Leben, Betaeubung und laufende Ult; der Client sendet
+    den Wunsch ~350 ms mit, bis die Ladung faellt. Alle Zaehler (`ultTicks`, `stun`, `root` als uint8, `realm`) liegen additiv im State, `PROTOCOL_V` bleibt 1.
+  - Ults: Blobby Blasenflut (Feuerrate x2.5), Cuby Bollwerk (20 % Schaden), Zappy Blitzrausch (+60 % Tempo, flottere Waffe), Hexo Todesnadel
+    (naechster Schuss riesig, x2.4 Schaden), Boo Geisterwelt, Kitty Schattensprung.
+  - Geisterwelt (Boo): Zielauswahl entlang der Zielrichtung (`ultTargetScore`, gleiche Funktion auf Server und Client fuer die Markierung), Boo springt neben das Ziel;
+    beide bekommen dieselbe `realm`-Nummer. Treffer, Kollision und Pickups gelten nur innerhalb derselben `realm`; der Client blendet fremde Welten aus und
+    zeichnet dunkle Welt + Geister-Partikel. Ziel ist 5 s gewurzelt (`root`), Boo 1.5x schneller. Ende bei Ablauf oder Tod/Verlassen eines Beteiligten.
+  - Schattensprung (Kitty): Sprung neben das anvisierte Ziel (650 px, Zielkegel), 2 s Betaeubung (`stun`: weder Bewegung noch Schuss).
+  - Prediction: Tempo = `effectiveSpeed(klasse, ultTicks)`; bei `stun`/`root` sagt der Client keine Bewegung voraus (Teleports > 90 px werden gesnappt).
+  - Charakterwechsel: Nachricht `skin` (Zod-validiert, 5/s) nur waehrend man tot ist; wirkt beim Respawn (HP/Waffe/Tempo der neuen Klasse).
+  - Zielbalken: transparenter Streifen vom eigenen Charakter in Zielrichtung (Laenge = Waffenreichweite, an Waenden per Strahltest gekappt).
+- Serverlast: alle Ult-Pfade sind O(Spieler) einmalig beim Ausloesen bzw. O(1) pro Treffer/Tick; keine neuen Entities. Einzige Dauerlast: Status-Zaehler pro lebendem Spieler.

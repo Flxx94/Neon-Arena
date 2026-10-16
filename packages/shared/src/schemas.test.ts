@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inputSchema, joinSchema, loginSchema, registerSchema, skinUpdateSchema } from './schemas.js'
+import { inputSchema, joinSchema, loginSchema, registerSchema, skinChangeSchema, skinUpdateSchema } from './schemas.js'
 import { PROTOCOL_V } from './protocol.js'
 import { SKIN_COUNT } from './skins.js'
 
@@ -68,5 +68,17 @@ describe('Account-Schemas (ADR-005)', () => {
     expect(skinUpdateSchema.safeParse({ skin: 0 }).success).toBe(true)
     expect(skinUpdateSchema.safeParse({ skin: SKIN_COUNT }).success).toBe(false)
     expect(skinUpdateSchema.safeParse({ skin: 1.5 }).success).toBe(false)
+  })
+
+  it('Input: ult optional und nur boolean; Charakterwechsel prueft den Skin-Bereich', () => {
+    const base = { kind: 'input', seq: 1, dx: 0, dy: 0, aim: 0, fire: false }
+    expect(inputSchema.parse(base).ult).toBeUndefined()
+    expect(inputSchema.parse({ ...base, ult: true }).ult).toBe(true)
+    expect(inputSchema.safeParse({ ...base, ult: 'ja' }).success).toBe(false)
+    expect(skinChangeSchema.safeParse({ skin: 0 }).success).toBe(true)
+    expect(skinChangeSchema.safeParse({ skin: SKIN_COUNT - 1 }).success).toBe(true)
+    expect(skinChangeSchema.safeParse({ skin: SKIN_COUNT }).success).toBe(false)
+    expect(skinChangeSchema.safeParse({ skin: -1 }).success).toBe(false)
+    expect(skinChangeSchema.safeParse({ skin: 1.5 }).success).toBe(false)
   })
 })

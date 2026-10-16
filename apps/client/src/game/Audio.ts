@@ -317,6 +317,22 @@ export class SoundFX {
   }
 
   /** Eigener Kill: Triumph-Arpeggio. */
+  /** Ult ist voll geladen: kurzes helles Zweiklang-Pling. */
+  ultReady(): void {
+    if (!this.ready()) return
+    const t = this.ctx!.currentTime
+    this.tone({ from: 660, to: 880, dur: 0.18, type: 'triangle', gain: 0.18, reverb: 0.4 })
+    this.tone({ from: 990, to: 1320, dur: 0.22, type: 'triangle', gain: 0.14, at: t + 0.12, reverb: 0.4 })
+  }
+
+  /** Ult ausgeloest: aufsteigender Sweep + Rauschen. */
+  ult(): void {
+    if (!this.ready()) return
+    this.tone({ from: 120, to: 900, dur: 0.45, type: 'sawtooth', gain: 0.2, reverb: 0.5 })
+    this.tone({ from: 240, to: 1800, dur: 0.4, type: 'square', gain: 0.1, reverb: 0.5 })
+    this.noise({ dur: 0.35, filter: 'highpass', from: 800, to: 5000, gain: 0.2 })
+  }
+
   killConfirm(streak = 1): void {
     if (!this.ready()) return
     const t = this.ctx!.currentTime

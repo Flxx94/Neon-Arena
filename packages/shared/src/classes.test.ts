@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   CLASSES,
   MODEL_COUNT,
+  ULT_DEATH_LOSS,
+  ULT_MAX,
+  ULT_PASSIVE_TICKS,
+  ULT_PER_DAMAGE_DEALT,
+  effectiveCooldown,
+  effectiveSpeed,
+  ultTargetScore,
   ROLE_LABELS,
   TICK_RATE,
   classDps,
@@ -74,5 +81,45 @@ describe('Charakter-Klassen (ADR-006)', () => {
       expect(classMaxLiveProjectiles(c)).toBeLessThanOrEqual(baseline)
       expect(c.ttlTicks / TICK_RATE).toBeLessThanOrEqual(2.2)
     }
+  })
+
+  describe('Ults (ADR-007)', () => {
+    it('jede Figur hat genau eine Ult; Dauer/Stun passen in uint8 (Schema)', () => {
+      expect(new Set(CLASSES.map((c) => c.ult.kind)).size).toBe(CLASSES.length)
+      for (const c of CLASSES) {
+        expect(c.ult.name.length).toBeGreaterThan(3)
+        expect(c.ult.description.length).toBeGreaterThan(20)
+        expect(c.ult.durationTicks).toBeLessThanOrEqual(255)
+        expect(c.ult.stunTicks).toBeLessThanOrEqual(255)
+      }
+    })
+
+    it('Effekte: Tempo/Abklingzeit nur waehrend die Ult laeuft', () => {
+      const zappy = CLASSES[2]!
+      expect(effectiveSpeed(zappy, 0)).toBe(zappy.speed)
+      expect(effectiveSpeed(zappy, 5)).toBeCloseTo(zappy.speed * zappy.ult.speedMult)
+      const blobby = CLASSES[0]!
+      expect(effectiveCooldown(blobby, 0)).toBe(blobby.cooldownTicks)
+      expect(effectiveCooldown(blobby, 5)).toBeLessThan(blobby.cooldownTicks)
+      expect(effectiveCooldown(blobby, 5)).toBeGreaterThanOrEqual(3)
+    })
+
+    it('Aufladung: ohne Kills dauert eine volle Ult mehrere Treffer, Passiv allein sehr lange', () => {
+      const dmgToFill = ULT_MAX / ULT_PER_DAMAGE_DEALT
+      expect(dmgToFill).toBeGreaterThan(400)
+      expect(ULT_MAX * ULT_PASSIVE_TICKS / TICK_RATE).toBeGreaterThan(150) // Sekunden nur passiv
+      expect(ULT_DEATH_LOSS).toBeGreaterThan(0)
+      expect(ULT_DEATH_LOSS).toBeLessThan(1)
+    })
+
+    it('Zielauswahl: nur im Kegel + Reichweite, naeher an der Zielgeraden gewinnt', () => {
+      const range = 700
+      expect(ultTargetScore(0, 0, 0, range, 300, 0)).toBeLessThan(Infinity)
+      expect(ultTargetScore(0, 0, 0, range, 800, 0)).toBe(Infinity) // zu weit
+      expect(ultTargetScore(0, 0, 0, range, -300, 0)).toBe(Infinity) // hinten
+      expect(ultTargetScore(0, 0, 0, range, 0, 300)).toBe(Infinity) // 90 Grad daneben
+      expect(ultTargetScore(0, 0, 0, range, 300, 20)).toBeGreaterThan(ultTargetScore(0, 0, 0, range, 300, 0))
+      expect(ultTargetScore(0, 0, Math.PI, range, -300, 10)).toBeLessThan(Infinity) // Winkel-Umbruch
+    })
   })
 })

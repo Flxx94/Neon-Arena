@@ -50,6 +50,19 @@ export const inputSchema = z
     dy: z.number().min(-1).max(1),
     aim: z.number().min(-Math.PI).max(Math.PI),
     fire: z.boolean(),
+    /** Ult ausloesen (idempotent: der Server verlangt volle Leiste). */
+    ult: z.boolean().optional(),
+  })
+  .strip()
+
+/** Charakterwechsel (nur waehrend man tot ist; der Server prueft das). */
+export const skinChangeSchema = z
+  .object({
+    skin: z
+      .number()
+      .int()
+      .min(0)
+      .max(SKIN_COUNT - 1),
   })
   .strip()
 
