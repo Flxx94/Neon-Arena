@@ -30,9 +30,10 @@ export interface ClientPlayer {
   ult: number
   ultTicks: number
   stun: number
-  root: number
+  disarm: number
   realm: number
   slow: number
+  hidden: number
   /** Ult-Richtung (Rakete: Flugrichtung) und Ult-Punkt (Strahl-Ursprung, Wuerfel-Ziel). */
   ultAim: number
   ultX: number
@@ -111,9 +112,10 @@ export class NetClient {
             ult?: number
             ultTicks?: number
             stun?: number
-            root?: number
+            disarm?: number
             realm?: number
             slow?: number
+            hidden?: number
             ultAim?: number
             ultX?: number
             ultY?: number
@@ -137,9 +139,10 @@ export class NetClient {
           ult: p.ult ?? 0,
           ultTicks: p.ultTicks ?? 0,
           stun: p.stun ?? 0,
-          root: p.root ?? 0,
+          disarm: p.disarm ?? 0,
           realm: p.realm ?? 0,
           slow: p.slow ?? 0,
+          hidden: p.hidden ?? 0,
           ultAim: p.ultAim ?? 0,
           ultX: p.ultX ?? 0,
           ultY: p.ultY ?? 0,

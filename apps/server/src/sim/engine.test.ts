@@ -22,6 +22,7 @@ import {
   ULT_PER_KILL,
   SLOW_MULT,
   mapOf,
+  ROCKET_TURN_RATE,
 } from '@neon-arena/shared'
 import {
   adminPlayer,
@@ -681,6 +682,48 @@ describe('engine Input-Queue + Boost', () => {
       expect(state.projectiles.length).toBeGreaterThan(0)
     })
 
+    it('Rakete: weiche Kurven (begrenzte Lenkrate), Explosion bleibt sichtbar, danach erst Neuspawn', () => {
+      const { ctx, state, ps } = world([0], 100)
+      put(ps[0]!, 1400, 800)
+      ps[0]!.ult = ULT_MAX
+      press(ctx, state, 0, { ua: 0, ud: 1 })
+      update(ctx, state)
+      let last = ps[0]!.ultAim
+      let maxTurn = 0
+      for (let i = 0; i < 20; i++) {
+        applyInput(ctx, state, 'p0', input(seqN++, -1, 0, 0, false)) // sofort 180 Grad verlangt
+        update(ctx, state)
+        maxTurn = Math.max(maxTurn, Math.abs(ps[0]!.ultAim - last))
+        last = ps[0]!.ultAim
+      }
+      expect(maxTurn).toBeLessThanOrEqual(ROCKET_TURN_RATE / TICK_RATE + 1e-3)
+      expect(maxTurn).toBeGreaterThan(0.05)
+      // Ablauf: unsichtbar am Explosionsort, danach Respawn woanders
+      let guard = 0
+      while (ps[0]!.ultTicks > 0 && guard++ < 200) update(ctx, state)
+      expect(ps[0]!.hidden).toBeGreaterThan(0)
+      const ex = { x: ps[0]!.x, y: ps[0]!.y }
+      run(ctx, state, 5)
+      expect(Math.hypot(ps[0]!.x - ex.x, ps[0]!.y - ex.y)).toBeLessThan(1)
+      const hp = ps[0]!.hp
+      expect(hp).toBeGreaterThan(0)
+      run(ctx, state, 40)
+      expect(ps[0]!.hidden).toBe(0)
+    })
+
+    it('Geisterwelt: Ziel kann sich bewegen, aber nicht schiessen', () => {
+      const { ctx, state, ps } = world([4, 0], 300)
+      ps[0]!.ult = ULT_MAX
+      press(ctx, state, 0)
+      update(ctx, state)
+      expect(ps[1]!.disarm).toBeGreaterThan(0)
+      const x0 = ps[1]!.x
+      applyInput(ctx, state, 'p1', input(seqN++, 1, 0, Math.PI, true))
+      run(ctx, state, 8)
+      expect(ps[1]!.x).toBeGreaterThan(x0 + 5)
+      expect(state.projectiles.filter((pr) => pr.owner === 'p1').length).toBe(0)
+    })
+
     it('Schattensprung (Kitty): springt zum Ziel, betaeubt es ~2 s, Betaeubte stehen und schiessen nicht', () => {
       const { ctx, state, ps } = world([5, 0], 400)
       ps[0]!.ult = ULT_MAX
@@ -717,7 +760,7 @@ describe('engine Input-Queue + Boost', () => {
       expect(ps[0]!.realm).not.toBe(0)
       expect(ps[1]!.realm).toBe(ps[0]!.realm)
       expect(ps[2]!.realm).toBe(0)
-      expect(ps[1]!.root).toBeGreaterThan(0)
+      expect(ps[1]!.disarm).toBeGreaterThan(0)
       // Dritter schiesst auf Ziel in der Geisterwelt: kein Schaden.
       ps[2]!.x = ps[1]!.x + 200
       ps[2]!.y = ps[1]!.y
@@ -733,7 +776,7 @@ describe('engine Input-Queue + Boost', () => {
       run(ctx, state, CLASSES[4]!.ult.durationTicks)
       expect(ps[0]!.realm).toBe(0)
       expect(ps[1]!.realm).toBe(0)
-      expect(ps[1]!.root).toBe(0)
+      expect(ps[1]!.disarm).toBe(0)
     })
 
     it('Geisterwelt endet sofort, wenn Boo oder das Ziel stirbt', () => {
