@@ -28,47 +28,68 @@ export const ROLE_LABELS: Record<Role, string> = {
   assassin: 'Assassin',
 }
 
-/** Ultra-Attacken (ADR-007). Jede Figur hat genau eine; sie laedt sich ueber Schaden/Kills/Zeit auf. */
-export type UltKind = 'overdrive' | 'bulwark' | 'rush' | 'snipe' | 'ghost' | 'pounce'
+/** Ultra-Attacken (ADR-007/008). Jede Figur hat genau eine; sie laedt sich ueber Schaden/Kills/Zeit auf. */
+export type UltKind = 'rocket' | 'slam' | 'beam' | 'field' | 'ghost' | 'pounce'
+
+/** Wie die Ult gezielt wird (Pre-Aim im Ult-Joystick): ohne Ziel, Richtung, Punkt oder Gegner. */
+export type UltAim = 'self' | 'dir' | 'point' | 'target'
+
+/** Schaden fuer "One-Shot"-Ults: toetet alles, was nicht unverwundbar ist (Schild wird mitgezaehlt). */
+export const ONE_SHOT = 9999
+/** Lauftempo-Faktor fuer Spieler im Zappy-Feld. */
+export const SLOW_MULT = 0.5
 
 export interface UltDef {
   kind: UltKind
   name: string
   description: string
-  /** Wirkdauer in Ticks (0 = sofortiger Effekt). */
+  aim: UltAim
+  /** Wirkdauer in Ticks (Rakete: Flugzeit, Wuerfel: Flugzeit bis zum Einschlag, Strahl: Anzeigedauer). */
   durationTicks: number
-  /** Faktor auf das Lauftempo waehrend der Ult. */
+  /** Faktor auf das Lauftempo waehrend der Ult (Rakete, Geisterwelt). */
   speedMult: number
-  /** Faktor auf die Abklingzeit der Waffe waehrend der Ult (<1 = schneller). */
-  cooldownMult: number
-  /** Faktor auf erlittenen Schaden waehrend der Ult (<1 = weniger). */
-  damageTakenMult: number
-  /** Faktor auf den Schaden des Ult-Schusses (Hexo). */
-  damageMult: number
-  /** Zielreichweite in px fuer Ults mit Zielauswahl (Boo, Kitty); 0 = ohne Ziel. */
+  /** Maximale Zielentfernung/Strahllaenge in px (0 = ohne). */
   range: number
+  /** Wirkradius in px: Feld (Zappy), Explosion (Blobby), Einschlag (Cuby). */
+  radius: number
+  /** Breite/Kontaktradius in px: Strahlbreite (Hexo), Kontaktzuender der Rakete (Blobby). */
+  width: number
+  /** Schockwellen-Radius und Rueckstoss in px (Cuby). */
+  shockRadius: number
+  knockback: number
+  /** Schaden pro `tickEvery` Ticks im Feld (Zappy). */
+  tickDamage: number
+  tickEvery: number
   /** Betaeubungsdauer in Ticks (Kitty). */
   stunTicks: number
+  /** Kugelsalve der Explosion (Blobby): Anzahl Projektile in alle Richtungen. */
+  salvo: number
 }
 
 function ult(
   kind: UltKind,
   name: string,
   description: string,
+  aim: UltAim,
   durationTicks: number,
-  extra: Partial<Omit<UltDef, 'kind' | 'name' | 'description' | 'durationTicks'>> = {},
+  extra: Partial<Omit<UltDef, 'kind' | 'name' | 'description' | 'aim' | 'durationTicks'>> = {},
 ): UltDef {
   return {
     kind,
     name,
     description,
+    aim,
     durationTicks,
     speedMult: 1,
-    cooldownMult: 1,
-    damageTakenMult: 1,
-    damageMult: 1,
     range: 0,
+    radius: 0,
+    width: 0,
+    shockRadius: 0,
+    knockback: 0,
+    tickDamage: 0,
+    tickEvery: 1,
     stunTicks: 0,
+    salvo: 0,
     ...extra,
   }
 }
@@ -116,7 +137,7 @@ export const CLASSES: readonly CharacterClass[] = [
     attack: 'Blubber-Blaster',
     description:
       'Der Allrounder: zuverlässige Seifenblasen mit guter Reichweite und solider Feuerrate. Perfekt zum Einstieg.',
-    ult: ult('overdrive', 'Blasenflut', 'Für 4 Sekunden feuert Blobby mehr als doppelt so schnell.', sec(4), { cooldownMult: 0.4 }),
+    ult: ult('rocket', 'Raketenflug', 'Blobby wird zur Rakete: fliegt 3 Sekunden über Hindernisse, explodiert über einem Gegner (One-Shot im Umkreis), feuert eine Kugelsalve und landet an einem anderen Punkt der Map.', 'dir', sec(3), { speedMult: 2.4, radius: 110, width: 40, salvo: 16 }),
   },
   {
     role: 'tank',
@@ -132,7 +153,7 @@ export const CLASSES: readonly CharacterClass[] = [
     attack: 'Klotz-Kanone',
     description:
       'Schleudert dicke Würfel: langsam, aber mit riesigem Treffer und größter Lebensanzeige. Hält am meisten aus.',
-    ult: ult('bulwark', 'Bollwerk', 'Für 4 Sekunden nimmt Cuby nur 20 % Schaden. Nichts hält ihn auf.', sec(4), { damageTakenMult: 0.2 }),
+    ult: ult('slam', 'Riesenwürfel', 'Schleudert einen riesigen Würfel auf einen Punkt: One-Shot am Einschlag, die Schockwelle stößt Gegner daneben zurück.', 'point', sec(0.7), { range: 600, radius: 70, shockRadius: 230, knockback: 190 }),
   },
   {
     role: 'assassin',
@@ -148,7 +169,7 @@ export const CLASSES: readonly CharacterClass[] = [
     attack: 'Blitz-Bolzen',
     description:
       'Superschnell, aber zerbrechlich: kurze, blitzschnelle Funkenschüsse. Ran, austeilen, wieder weg.',
-    ult: ult('rush', 'Blitzrausch', 'Für 4 Sekunden rast Zappy 60 % schneller und feuert flotter.', sec(4), { speedMult: 1.6, cooldownMult: 0.6 }),
+    ult: ult('field', 'Elektrofeld', 'Ein elektrisches Feld um Zappy: Gegner darin sind langsamer und nehmen Schaden, Zappys Schüsse zielen leicht automatisch.', 'self', sec(5), { radius: 230, tickDamage: 7, tickEvery: 15 }),
   },
   {
     role: 'damage',
@@ -164,7 +185,7 @@ export const CLASSES: readonly CharacterClass[] = [
     attack: 'Hex-Nadel',
     description:
       'Der Scharfschütze: pfeilschnelle Nadel mit enormer Reichweite und 65 Schaden, dafür nur etwa ein Schuss pro Sekunde.',
-    ult: ult('snipe', 'Todesnadel', 'Der nächste Schuss (8 Sekunden Zeit) ist eine riesige Nadel mit 2,4-fachem Schaden.', sec(8), { damageMult: 2.4 }),
+    ult: ult('beam', 'Weltenstrahl', 'Ein breiter, blitzschneller Strahl über die ganze Map, der Hindernisse ignoriert und alles in seiner Bahn mit einem Schlag erledigt.', 'dir', 14, { range: 3400, width: 84 }),
   },
   {
     role: 'tank',
@@ -180,7 +201,7 @@ export const CLASSES: readonly CharacterClass[] = [
     attack: 'Spuk-Wisp',
     description:
       'Geisterhafter Wisp, der 30 % des Schadens als Leben zurückholt. Zäh, ausdauernd und kaum totzukriegen.',
-    ult: ult('ghost', 'Geisterwelt', 'Zieh einen Gegner in dein Geisterreich: 5 Sekunden Duell, du bist schneller, er kann nicht laufen, alle anderen sind unsichtbar.', sec(5), { speedMult: 1.5, range: 700 }),
+    ult: ult('ghost', 'Geisterwelt', 'Zieh einen Gegner in dein Geisterreich: 5 Sekunden Duell, du bist schneller, er kann nicht laufen, alle anderen sind unsichtbar.', 'target', sec(5), { speedMult: 1.5, range: 700 }),
   },
   {
     role: 'assassin',
@@ -196,7 +217,7 @@ export const CLASSES: readonly CharacterClass[] = [
     attack: 'Krallen-Schwung',
     description:
       'Lautlos und gefährlich: Treffer in den Rücken richten 70 % mehr Schaden an. Kurze Reichweite, hohes Tempo.',
-    ult: ult('pounce', 'Schattensprung', 'Springt zum anvisierten Gegner und betäubt ihn ca. 2 Sekunden.', 0, { range: 650, stunTicks: sec(2) }),
+    ult: ult('pounce', 'Schattensprung', 'Springt zum anvisierten Gegner und betäubt ihn ca. 2 Sekunden.', 'target', 0, { range: 650, stunTicks: sec(2) }),
   },
 ]
 
@@ -249,15 +270,23 @@ export const ULT_PASSIVE_TICKS = 8
 /** Anteil, der beim Tod verloren geht (nur wenn nicht voll). */
 export const ULT_DEATH_LOSS = 0.35
 
-/** Lauftempo (px/s) inkl. Ult-Effekt; `ultTicks` = verbleibende Ult-Ticks (0 = inaktiv). */
-export function effectiveSpeed(c: CharacterClass, ultTicks: number): number {
-  return ultTicks > 0 ? c.speed * c.ult.speedMult : c.speed
+/** Rakete (Blobby-Ult) aktiv? Dann fliegt die Figur ueber Hindernisse und ist unverwundbar. */
+export function isFlying(c: CharacterClass, ultTicks: number): boolean {
+  return c.ult.kind === 'rocket' && ultTicks > 0
 }
 
-/** Waffen-Abklingzeit in Ticks inkl. Ult-Effekt. */
-export function effectiveCooldown(c: CharacterClass, ultTicks: number): number {
-  return ultTicks > 0 ? Math.max(3, Math.round(c.cooldownTicks * c.ult.cooldownMult)) : c.cooldownTicks
+/** Lauftempo (px/s) inkl. Ult-Effekt (Geisterwelt, Rakete) und Verlangsamung im Zappy-Feld (`slowTicks` > 0). */
+export function effectiveSpeed(c: CharacterClass, ultTicks: number, slowTicks = 0): number {
+  let v = c.speed
+  if (ultTicks > 0 && (c.ult.kind === 'ghost' || c.ult.kind === 'rocket')) v *= c.ult.speedMult
+  if (slowTicks > 0) v *= SLOW_MULT
+  return v
 }
+
+/** Zielhilfe im Zappy-Feld: Schuss wird um bis zu `AUTOAIM_PULL` Richtung Gegner gedreht (nur im Kegel). */
+export const AUTOAIM_RANGE = 520
+export const AUTOAIM_CONE = 0.6
+export const AUTOAIM_PULL = 0.7
 
 /**
  * Zielauswahl fuer Ults mit Ziel (Boo/Kitty): kleinster Wert gewinnt, Infinity = nicht anvisierbar.

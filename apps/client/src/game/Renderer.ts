@@ -19,6 +19,11 @@ export interface RenderPlayer {
   ultTicks: number
   stun: number
   root: number
+  slow: number
+  /** Ult-Richtung (Rakete: Flugrichtung) und Ult-Punkt (Strahl-Ursprung, Wuerfel-Ziel). */
+  ultAim: number
+  ultX: number
+  ultY: number
 }
 
 export interface RenderProjectile {
@@ -26,8 +31,6 @@ export interface RenderProjectile {
   x: number
   y: number
   kind: number
-  /** Ult-Schuss: gross zeichnen. */
-  big: boolean
 }
 
 export interface RenderPickup {
@@ -50,6 +53,8 @@ export interface RenderState {
   ghost: boolean
   /** Spieler, der von der Ziel-Ult (Boo/Kitty) gerade anvisiert wuerde. */
   ultTargetId: string | null
+  /** Pre-Aim der Ult (Ult-Joystick gezogen / Q gehalten): Richtung + Entfernung 0..1. */
+  ultPreview: { angle: number; dist: number } | null
 }
 
 /** Ereignisse, die der Renderer aus Zustandsdifferenzen ableitet (fuer Sound/HUD in main.ts). */
@@ -61,6 +66,8 @@ export interface RenderHooks {
   onDeath?: (own: boolean, x: number, y: number) => void
   onSpawn?: (own: boolean, x: number, y: number) => void
   onPickup?: (kind: string, own: boolean, x: number, y: number) => void
+  /** Ult-Effekt sichtbar gestartet/eingeschlagen (fuer Sound). */
+  onUltFx?: (kind: string, own: boolean, x: number, y: number) => void
 }
 
 /** Rendering hinter Interface (M2-06): spaeter Phaser/Pixi tauschbar (P2-05). */

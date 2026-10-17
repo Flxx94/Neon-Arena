@@ -89,3 +89,15 @@
   - Charakterwechsel: Nachricht `skin` (Zod-validiert, 5/s) nur waehrend man tot ist; wirkt beim Respawn (HP/Waffe/Tempo der neuen Klasse).
   - Zielbalken: transparenter Streifen vom eigenen Charakter in Zielrichtung (Laenge = Waffenreichweite, an Waenden per Strahltest gekappt).
 - Serverlast: alle Ult-Pfade sind O(Spieler) einmalig beim Ausloesen bzw. O(1) pro Treffer/Tick; keine neuen Entities. Einzige Dauerlast: Status-Zaehler pro lebendem Spieler.
+
+## ADR-008: Ult-Rework und Ult-Joystick mit Pre-Aim
+- Status: akzeptiert (2026-10-17)
+- Entscheidung:
+  - Ults ersetzt (`UltKind` rocket/slam/beam/field/ghost/pounce): Hexo **Weltenstrahl** (breiter, schneller Strahl ueber die ganze Karte, ignoriert Hindernisse, One-Shot),
+    Zappy **Elektrofeld** (Gegner im Radius 50 % langsamer, Tick-Schaden, leichtes Autoaim), Cuby **Riesenwuerfel** (Einschlag = One-Shot, Schockwelle mit Rueckstoss),
+    Blobby **Raketenflug** (fliegt ueber Hindernisse, explodiert ueber Gegnern = One-Shot im Radius + Kugelsalve, Respawn an anderer Stelle). Boo und Kitty unveraendert.
+  - One-Shot = `ONE_SHOT` Schaden ohne Ult-Ladung (`charge=false`). Rakete laeuft rein serverseitig (immun, kein Schiessen, kein Client-Prediction).
+  - Ausloesen: Input `ult` plus optional `ua` (Winkel) und `ud` (Distanz 0..1); idempotent wie zuvor. `PROTOCOL_V` bleibt 1.
+  - Ult-Joystick (`UltControl.ts`): Tippen = sofort mit aktuellem Ziel, Ziehen ueber die Totzone = Pre-Aim-HUD je Ult-Art, Loslassen loest aus, zurueck zur Mitte + Loslassen
+    bricht ab. Desktop: Q halten = Pre-Aim zur Maus, loslassen = ausloesen, Esc = abbrechen.
+- Serverlast: unveraendert O(Spieler) pro Ausloesung; Feld/Rakete O(Spieler) pro Tick nur waehrend aktiver Ult.

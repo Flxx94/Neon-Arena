@@ -19,6 +19,8 @@ import {
   ULT_PASSIVE_TICKS,
   ULT_PER_DAMAGE_DEALT,
   ULT_PER_DAMAGE_TAKEN,
+  ULT_PER_KILL,
+  SLOW_MULT,
 } from '@neon-arena/shared'
 import {
   applyInput,
@@ -474,8 +476,10 @@ describe('engine Input-Queue + Boost', () => {
   })
 
   describe('Ults', () => {
+    let curCtx: ReturnType<typeof createContext> | null = null
     function world(models: number[], gap = 200, x0 = 150, y0 = 30) {
       const ctx = createContext(false)
+      curCtx = ctx
       const state = new ArenaState()
       const ps = models.map((m, i) => {
         const id = `p${i}`
@@ -548,59 +552,130 @@ describe('engine Input-Queue + Boost', () => {
       expect(ps[0]!.ult).toBeLessThan(20)
     })
 
-    it('Blasenflut: Feuerrate steigt, Bollwerk: Schaden sinkt, Blitzrausch: Tempo steigt', () => {
-      const shots = (ultOn: boolean) => {
-        const { ctx, state, ps } = world([0], 1500)
-        if (ultOn) {
-          ps[0]!.ult = ULT_MAX
-          press(ctx, state, 0)
-        }
-        applyInput(ctx, state, 'p0', { ...input(seqN++, 0, 0, 0, true), ult: ultOn })
-        const seen = new Set<string>()
-        for (let i = 0; i < 60; i++) {
-          update(ctx, state)
-          for (const p of state.projectiles) seen.add(p.id)
-        }
-        return seen.size
-      }
-      expect(shots(true)).toBeGreaterThan(shots(false) * 2)
+    /** Spieler frei platzieren (Tests mit definierter Geometrie). */
+    function put(p: Player, x: number, y: number) {
+      p.x = x
+      p.y = y
+      curCtx?.histories.set(p.nickname, [{ x, y }]) // Rewind-Historie mitnehmen
+    }
 
-      const hit = (ultOn: boolean) => {
-        const { ctx, state, ps } = world([0, 1], 150)
-        ps[1]!.aim = Math.PI
-        if (ultOn) {
-          ps[1]!.ult = ULT_MAX
-          press(ctx, state, 1)
-        }
-        applyInput(ctx, state, 'p0', input(seqN++, 0, 0, 0, true))
-        run(ctx, state, 12)
-        return classOf(1).hp - ps[1]!.hp
-      }
-      expect(hit(true)).toBeCloseTo(hit(false) * CLASSES[1]!.ult.damageTakenMult, 3)
-
-      const { ctx, state, ps } = world([2], 150)
+    it('Elektrofeld (Zappy): verlangsamt + schadet nur im Radius, Zielhilfe dreht Schuesse zum Gegner', () => {
+      const { ctx, state, ps } = world([2, 0, 0], 100)
+      put(ps[0]!, 400, 500)
+      put(ps[1]!, 400 + 150, 500) // im Feld
+      put(ps[2]!, 400 + 600, 500) // ausserhalb
       ps[0]!.ult = ULT_MAX
       press(ctx, state, 0)
-      run(ctx, state, 2)
-      const x0 = ps[0]!.x
-      applyInput(ctx, state, 'p0', input(seqN++, 1, 0))
+      run(ctx, state, 31)
+      const def = CLASSES[2]!.ult
+      expect(ps[1]!.slow).toBeGreaterThan(0)
+      expect(ps[1]!.hp).toBeLessThan(classOf(0).hp)
+      expect(ps[1]!.hp).toBeGreaterThanOrEqual(classOf(0).hp - def.tickDamage * 3)
+      expect(ps[2]!.slow).toBe(0)
+      expect(ps[2]!.hp).toBe(classOf(0).hp)
+      // Verlangsamung: Tempo des Gegners im Feld sinkt auf SLOW_MULT
+      const x0 = ps[1]!.x
+      applyInput(ctx, state, 'p1', input(seqN++, 1, 0))
       update(ctx, state)
-      expect(ps[0]!.x - x0).toBeCloseTo((CLASSES[2]!.speed * CLASSES[2]!.ult.speedMult) / TICK_RATE, 4)
+      expect(ps[1]!.x - x0).toBeCloseTo((classOf(0).speed * SLOW_MULT) / TICK_RATE, 3)
+      // Autoaim: Ziel 0.1 rad neben der Zielrichtung wird ohne Ult verfehlt, mit Ult getroffen
+      const shot = (withUlt: boolean) => {
+        const w = world([2, 0], 100)
+        put(w.ps[0]!, 150, 40)
+        put(w.ps[1]!, 150 + Math.cos(0.1) * 300, 40 + Math.sin(0.1) * 300)
+        if (withUlt) {
+          w.ps[0]!.ult = ULT_MAX
+          press(w.ctx, w.state, 0)
+          run(w.ctx, w.state, 2)
+        }
+        const hp0 = w.ps[1]!.hp
+        applyInput(w.ctx, w.state, 'p0', input(seqN++, 0, 0, 0, true))
+        run(w.ctx, w.state, 20)
+        return hp0 - w.ps[1]!.hp
+      }
+      expect(shot(false)).toBe(0)
+      expect(shot(true)).toBeGreaterThanOrEqual(CLASSES[2]!.damage)
     })
 
-    it('Todesnadel: naechster Schuss ist gross, macht mehr Schaden, verbraucht die Ult', () => {
-      const { ctx, state, ps } = world([3, 1], 400)
-      ps[1]!.aim = Math.PI
+    it('Weltenstrahl (Hexo): One-Shot fuer alle in der Bahn, ueber die ganze Map, durch Hindernisse', () => {
+      const { ctx, state, ps } = world([3, 1, 0, 0], 100)
+      put(ps[0]!, 100, 800)
+      put(ps[1]!, 900, 800) // Cuby (180 HP), mitten in der Bahn
+      put(ps[2]!, 2600, 800) // ganz am anderen Ende
+      put(ps[3]!, 900, 1000) // ausserhalb der Bahn
       ps[0]!.ult = ULT_MAX
-      press(ctx, state, 0)
-      run(ctx, state, 2)
-      expect(ps[0]!.ultTicks).toBeGreaterThan(0)
-      applyInput(ctx, state, 'p0', input(seqN++, 0, 0, 0, true))
+      press(ctx, state, 0, { ua: 0, ud: 1 })
       update(ctx, state)
-      expect(state.projectiles[0]!.big).toBe(true)
+      expect(ps[1]!.alive).toBe(false)
+      expect(ps[2]!.alive).toBe(false)
+      expect(ps[3]!.alive).toBe(true)
+      expect(ps[0]!.ultTicks).toBeGreaterThan(0) // Anzeigedauer
+      // Ult-Kills laden die Ult nicht sofort wieder voll (nur Kill-Bonus)
+      expect(ps[0]!.ult).toBeLessThanOrEqual(2 * ULT_PER_KILL + 40)
+    })
+
+    it('Riesenwuerfel (Cuby): Einschlag nach Flugzeit, One-Shot am Ziel, Schockwelle stoesst zurueck', () => {
+      const { ctx, state, ps } = world([1, 0, 0, 0], 100)
+      put(ps[0]!, 300, 800)
+      put(ps[1]!, 300 + 400, 800) // Einschlagpunkt (ud = 400/600)
+      put(ps[2]!, 300 + 400 + 140, 800) // neben dem Einschlag -> Rueckstoss
+      put(ps[3]!, 300 + 400 + 600, 800) // weit weg
+      ps[0]!.ult = ULT_MAX
+      press(ctx, state, 0, { ua: 0, ud: 400 / 600 })
+      update(ctx, state)
+      expect(ps[0]!.ultX).toBeCloseTo(700, 0)
+      expect(ps[0]!.ultTicks).toBeGreaterThan(0)
+      expect(ps[1]!.alive).toBe(true) // noch in der Luft
+      const x2 = ps[2]!.x
+      run(ctx, state, CLASSES[1]!.ult.durationTicks + 1)
+      expect(ps[1]!.alive).toBe(false)
+      expect(ps[2]!.alive).toBe(true)
+      expect(ps[2]!.x).toBeGreaterThan(x2 + 40)
+      expect(ps[3]!.x).toBe(300 + 400 + 600)
       expect(ps[0]!.ultTicks).toBe(0)
-      run(ctx, state, 30)
-      expect(classOf(1).hp - ps[1]!.hp).toBeCloseTo(CLASSES[3]!.damage * CLASSES[3]!.ult.damageMult, 3)
+    })
+
+    it('Raketenflug (Blobby): fliegt ueber Hindernisse, unverwundbar, explodiert ueber Gegner, Salve + Neuspawn', () => {
+      const { ctx, state, ps } = world([0, 1, 2, 0], 100)
+      // Weg quer durch die Map-Mitte (Hindernisse) zu Gegner 1
+      put(ps[0]!, 700, 800)
+      put(ps[1]!, 1500, 800)
+      put(ps[2]!, 1500 + 60, 800 + 40) // im Explosionsradius
+      put(ps[3]!, 2500, 100) // weit weg
+      ps[0]!.ult = ULT_MAX
+      press(ctx, state, 0, { ua: 0, ud: 1 })
+      update(ctx, state)
+      expect(ps[0]!.ultTicks).toBeGreaterThan(0)
+      // Waehrend des Flugs: kein Schaden, keine Kollision, schiessen unmoeglich
+      applyInput(ctx, state, 'p3', input(seqN++, 0, 0, Math.atan2(800 - 100, 700 - 2500), true))
+      const hp = ps[0]!.hp
+      let minX = ps[0]!.x
+      let exploded = false
+      for (let i = 0; i < 60 && !exploded; i++) {
+        applyInput(ctx, state, 'p0', input(seqN++, 1, 0, 0, true))
+        update(ctx, state)
+        if (ps[0]!.ultTicks === 0) exploded = true
+        else minX = Math.max(minX, ps[0]!.x)
+        if (!exploded) expect(ps[0]!.hp).toBe(hp)
+      }
+      expect(exploded).toBe(true)
+      expect(minX).toBeGreaterThan(1000) // hat die Mitte ueberflogen
+      expect(ps[1]!.alive).toBe(false)
+      expect(ps[2]!.alive).toBe(false)
+      expect(ps[3]!.alive).toBe(true)
+      // Salve + Neuspawn an anderem Punkt
+      expect(state.projectiles.length).toBeGreaterThanOrEqual(CLASSES[0]!.ult.salvo - 1)
+      expect(Math.hypot(ps[0]!.x - 1500, ps[0]!.y - 800)).toBeGreaterThan(5)
+    })
+
+    it('Rakete ohne Gegner explodiert nach Ablauf und Blobby taucht woanders auf', () => {
+      const { ctx, state, ps } = world([0], 100)
+      put(ps[0]!, 300, 300)
+      ps[0]!.ult = ULT_MAX
+      press(ctx, state, 0, { ua: 0, ud: 1 })
+      run(ctx, state, CLASSES[0]!.ult.durationTicks + 3)
+      expect(ps[0]!.ultTicks).toBe(0)
+      expect(state.projectiles.length).toBeGreaterThan(0)
     })
 
     it('Schattensprung (Kitty): springt zum Ziel, betaeubt es ~2 s, Betaeubte stehen und schiessen nicht', () => {

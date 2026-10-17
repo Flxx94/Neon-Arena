@@ -8,6 +8,7 @@ import {
   PROJECTILE_RADIUS,
   classOf,
   classRange,
+  isFlying,
   skinColor,
   skinModel,
 } from '@neon-arena/shared'
@@ -59,17 +60,6 @@ interface ProjTrack {
   seen: boolean
   shooterId: string | null
   kind: number
-  big: boolean
-}
-
-/** Aura-Farben je Ult-Art. */
-const ULT_COLORS: Record<string, string> = {
-  overdrive: '#ffd23f',
-  bulwark: '#5dff9b',
-  rush: '#3fd8ff',
-  snipe: '#ff4b5c',
-  ghost: '#b57bff',
-  pounce: '#ff7ab8',
 }
 
 interface PickupTrack {
@@ -336,6 +326,24 @@ export class CanvasRenderer implements Renderer {
       a.hp = p.hp
       a.shield = p.shield
       a.alive = p.alive
+      // Ult-Start/-Ende (Rakete explodiert, Wuerfel schlaegt ein, ...)
+      const prevUlt = this.prevUlt.get(p.id) ?? 0
+      const kind = classOf(p.skin).ult.kind
+      if (isFlying(classOf(p.skin), p.ultTicks)) this.rocketPos.set(p.id, { x: p.x, y: p.y })
+      if (this.initialized && prevUlt === 0 && p.ultTicks > 0) {
+        this.hooks.onUltFx?.(kind, own, p.x, p.y)
+      } else if (this.initialized && prevUlt > 0 && p.ultTicks === 0 && p.alive) {
+        if (kind === 'rocket') {
+          const rp = this.rocketPos.get(p.id) ?? { x: p.x, y: p.y }
+          this.burst(rp.x, rp.y, classOf(p.skin).ult.radius * 1.6, '#ffb02e', state)
+          this.hooks.onUltFx?.('rocket-boom', own, rp.x, rp.y)
+        } else if (kind === 'slam') {
+          const d = classOf(p.skin).ult
+          this.burst(p.ultX, p.ultY, d.shockRadius, '#ff7a3f', state)
+          this.hooks.onUltFx?.('slam-boom', own, p.ultX, p.ultY)
+        }
+      }
+      this.prevUlt.set(p.id, p.ultTicks)
     }
     for (const [id, a] of this.anims) if (!a.seen) this.anims.delete(id)
 
@@ -363,7 +371,6 @@ export class CanvasRenderer implements Renderer {
           seen: true,
           shooterId: shooter?.id ?? null,
           kind: pr.kind,
-          big: pr.big,
         }
         this.projs.set(pr.id, t)
         if (shooter && this.initialized) {
@@ -459,6 +466,8 @@ export class CanvasRenderer implements Renderer {
     this.drawProjectiles(ctx, t)
     this.drawBoostAuras(ctx, order, t, dt)
     this.drawStatusAuras(ctx, order, state.ultTargetId, t)
+    if (state.ultPreview && ownPlayer?.alive) this.drawUltPreview(ctx, ownPlayer, state.ultPreview, t)
+    this.drawBursts(ctx, dt)
     for (const p of order) this.drawPlayer(ctx, p, p.id === state.ownId, t)
     this.fx.draw(ctx, pal)
     for (const p of order) this.drawNameplate(ctx, p, p.id === state.ownId)
@@ -544,18 +553,32 @@ export class CanvasRenderer implements Renderer {
     const r = PLAYER_RADIUS * MODEL_SCALE
     for (const p of order) {
       if (p.ultTicks > 0) {
-        const color = ULT_COLORS[classOf(p.skin).ult.kind] ?? '#ffd23f'
-        const pulse = 1 + Math.sin(t * 10) * 0.07
+        const def = classOf(p.skin).ult
+        if (def.kind === 'field') this.drawField(ctx, p, def.radius, t)
+        else if (def.kind === 'beam') this.drawBeamFx(ctx, p, def)
+        else if (def.kind === 'slam') this.drawSlamFx(ctx, p, def)
+        else if (def.kind === 'ghost') {
+          ctx.save()
+          ctx.translate(p.x, p.y)
+          ctx.lineWidth = 4
+          ctx.strokeStyle = alpha('#b57bff', 0.9)
+          ctx.fillStyle = alpha('#b57bff', 0.14)
+          ctx.setLineDash([14, 8])
+          ctx.lineDashOffset = -t * 60
+          ctx.beginPath()
+          ctx.arc(0, 0, r * 2 * (1 + Math.sin(t * 10) * 0.07), 0, TAU)
+          ctx.fill()
+          ctx.stroke()
+          ctx.restore()
+        }
+      }
+      if (p.slow > 0) {
         ctx.save()
-        ctx.translate(p.x, p.y)
-        ctx.lineWidth = 4
-        ctx.strokeStyle = alpha(color, 0.9)
-        ctx.fillStyle = alpha(color, 0.14)
-        ctx.setLineDash([14, 8])
-        ctx.lineDashOffset = -t * 60
+        ctx.translate(p.x, p.y + r * 0.7)
+        ctx.strokeStyle = alpha('#9ff0ff', 0.9)
+        ctx.lineWidth = 2.5
         ctx.beginPath()
-        ctx.arc(0, 0, r * 2 * pulse, 0, TAU)
-        ctx.fill()
+        ctx.ellipse(0, 0, r * 1.3, r * 0.5, 0, 0, TAU)
         ctx.stroke()
         ctx.restore()
       }
@@ -644,6 +667,270 @@ export class CanvasRenderer implements Renderer {
   }
 
   private boostTrailAt = new Map<string, number>()
+  private prevUlt = new Map<string, number>()
+  private rocketPos = new Map<string, { x: number; y: number }>()
+  private bursts: { x: number; y: number; r: number; t: number; color: string }[] = []
+
+  /** Explosion/Schockwelle: expandierender Ring + Konfetti + Kamera-Wackeln (wenn nah am eigenen Spieler). */
+  private burst(x: number, y: number, r: number, color: string, state: RenderState): void {
+    this.bursts.push({ x, y, r, t: 0, color })
+    this.fx.confetti(x, y, 60)
+    const own = state.players.find((q) => q.id === state.ownId)
+    if (own && Math.hypot(own.x - x, own.y - y) < 900) this.fx.shake(8)
+  }
+
+  private drawBursts(ctx: CanvasRenderingContext2D, dt: number): void {
+    for (let i = this.bursts.length - 1; i >= 0; i--) {
+      const b = this.bursts[i]!
+      b.t += dt
+      const k = b.t / 0.65
+      if (k >= 1) {
+        this.bursts.splice(i, 1)
+        continue
+      }
+      const e = 1 - Math.pow(1 - k, 3)
+      ctx.save()
+      ctx.translate(b.x, b.y)
+      ctx.fillStyle = alpha(b.color, 0.4 * (1 - k))
+      ctx.beginPath()
+      ctx.arc(0, 0, b.r * (0.25 + 0.75 * e), 0, TAU)
+      ctx.fill()
+      ctx.lineWidth = 8 * (1 - k) + 2
+      ctx.strokeStyle = alpha('#ffffff', 0.85 * (1 - k))
+      ctx.beginPath()
+      ctx.arc(0, 0, b.r * e, 0, TAU)
+      ctx.stroke()
+      ctx.restore()
+    }
+  }
+
+  /** Pre-Aim der Ult (Ult-Joystick gezogen / Q gehalten): zeigt Richtung, Zielpunkt bzw. Wirkbereich. */
+  private drawUltPreview(
+    ctx: CanvasRenderingContext2D,
+    p: RenderPlayer,
+    pv: { angle: number; dist: number },
+    t: number,
+  ): void {
+    const def = classOf(p.skin).ult
+    const ux = Math.cos(pv.angle)
+    const uy = Math.sin(pv.angle)
+    ctx.save()
+    ctx.translate(p.x, p.y)
+    ctx.lineWidth = 3
+    ctx.setLineDash([14, 10])
+    ctx.lineDashOffset = -t * 50
+    switch (def.kind) {
+      case 'beam': {
+        ctx.rotate(pv.angle)
+        ctx.fillStyle = alpha('#ff4b5c', 0.16)
+        ctx.fillRect(PLAYER_RADIUS, -def.width / 2, def.range, def.width)
+        ctx.strokeStyle = alpha('#ff4b5c', 0.7)
+        ctx.strokeRect(PLAYER_RADIUS, -def.width / 2, def.range, def.width)
+        break
+      }
+      case 'field': {
+        ctx.fillStyle = alpha('#3fd8ff', 0.14)
+        ctx.strokeStyle = alpha('#3fd8ff', 0.85)
+        ctx.beginPath()
+        ctx.arc(0, 0, def.radius, 0, TAU)
+        ctx.fill()
+        ctx.stroke()
+        break
+      }
+      case 'slam': {
+        const d = Math.min(def.range, Math.max(120, def.range * pv.dist))
+        const tx = ux * d
+        const ty = uy * d
+        ctx.strokeStyle = alpha('#ffffff', 0.6)
+        ctx.beginPath()
+        ctx.moveTo(ux * PLAYER_RADIUS, uy * PLAYER_RADIUS)
+        ctx.lineTo(tx, ty)
+        ctx.stroke()
+        ctx.strokeStyle = alpha('#ff7a3f', 0.8)
+        ctx.beginPath()
+        ctx.arc(tx, ty, def.shockRadius, 0, TAU)
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.fillStyle = alpha('#ff4b5c', 0.3)
+        ctx.strokeStyle = alpha('#ff4b5c', 0.95)
+        ctx.beginPath()
+        ctx.arc(tx, ty, def.radius, 0, TAU)
+        ctx.fill()
+        ctx.stroke()
+        break
+      }
+      case 'rocket': {
+        ctx.rotate(pv.angle)
+        ctx.fillStyle = alpha('#ffd23f', 0.14)
+        ctx.fillRect(PLAYER_RADIUS, -def.width, 620, def.width * 2)
+        ctx.setLineDash([])
+        ctx.strokeStyle = alpha('#ffd23f', 0.9)
+        ctx.lineWidth = 4
+        for (let i = 0; i < 5; i++) {
+          const x = 90 + i * 100 + ((t * 120) % 100)
+          ctx.globalAlpha = 1 - i / 6
+          ctx.beginPath()
+          ctx.moveTo(x - 10, -12)
+          ctx.lineTo(x + 6, 0)
+          ctx.lineTo(x - 10, 12)
+          ctx.stroke()
+        }
+        ctx.globalAlpha = 1
+        break
+      }
+      default: {
+        // ghost / pounce: Zielkegel
+        ctx.fillStyle = alpha('#b57bff', 0.12)
+        ctx.strokeStyle = alpha('#b57bff', 0.7)
+        ctx.beginPath()
+        ctx.moveTo(0, 0)
+        ctx.arc(0, 0, def.range, pv.angle - 0.55, pv.angle + 0.55)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+      }
+    }
+    ctx.restore()
+  }
+
+  /** Rakete (Blobby-Ult) statt Figur. */
+  private drawRocket(ctx: CanvasRenderingContext2D, p: RenderPlayer, t: number): void {
+    const tone = skinTone(skinColor(p.skin))
+    const pal = this.pal
+    this.fx.trail(p.x - Math.cos(p.ultAim) * 24, p.y - Math.sin(p.ultAim) * 24, '#ffb02e')
+    ctx.save()
+    ctx.translate(p.x, p.y)
+    ctx.rotate(p.ultAim)
+    ctx.lineJoin = 'round'
+    const fl = 14 + Math.sin(t * 50) * 5
+    ctx.fillStyle = '#ffb02e'
+    ctx.beginPath()
+    ctx.moveTo(-22, 0)
+    ctx.lineTo(-30 - fl, -8)
+    ctx.lineTo(-24 - fl * 1.7, 0)
+    ctx.lineTo(-30 - fl, 8)
+    ctx.closePath()
+    ctx.fill()
+    ctx.fillStyle = '#fff3b0'
+    ctx.beginPath()
+    ctx.moveTo(-22, 0)
+    ctx.lineTo(-26 - fl * 0.6, -4)
+    ctx.lineTo(-24 - fl, 0)
+    ctx.lineTo(-26 - fl * 0.6, 4)
+    ctx.closePath()
+    ctx.fill()
+    ctx.lineWidth = 3
+    ctx.strokeStyle = pal.ink
+    ctx.fillStyle = tone.dark
+    for (const s of [-1, 1]) {
+      ctx.beginPath()
+      ctx.moveTo(-24, s * 8)
+      ctx.lineTo(-6, s * 10)
+      ctx.lineTo(-24, s * 24)
+      ctx.closePath()
+      ctx.fill()
+      ctx.stroke()
+    }
+    ctx.fillStyle = tone.base
+    ctx.beginPath()
+    ctx.ellipse(0, 0, 26, 12, 0, 0, TAU)
+    ctx.fill()
+    ctx.stroke()
+    ctx.fillStyle = '#ff4b5c'
+    ctx.beginPath()
+    ctx.moveTo(14, -10)
+    ctx.quadraticCurveTo(34, -6, 38, 0)
+    ctx.quadraticCurveTo(34, 6, 14, 10)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+    ctx.fillStyle = pal.bulletCore
+    ctx.beginPath()
+    ctx.arc(2, 0, 5, 0, TAU)
+    ctx.fill()
+    ctx.stroke()
+    ctx.restore()
+  }
+
+  /** Elektrofeld (Zappy): pulsierender Kreis mit zuckenden Blitzbogen. */
+  private drawField(ctx: CanvasRenderingContext2D, p: RenderPlayer, radius: number, t: number): void {
+    ctx.save()
+    ctx.translate(p.x, p.y)
+    const pulse = 1 + Math.sin(t * 8) * 0.03
+    ctx.fillStyle = alpha('#3fd8ff', 0.12)
+    ctx.strokeStyle = alpha('#9ff0ff', 0.85)
+    ctx.lineWidth = 4
+    ctx.beginPath()
+    ctx.arc(0, 0, radius * pulse, 0, TAU)
+    ctx.fill()
+    ctx.stroke()
+    ctx.lineWidth = 2.5
+    ctx.strokeStyle = alpha('#ffffff', 0.9)
+    const seed = Math.floor(t * 14)
+    for (let i = 0; i < 6; i++) {
+      const a0 = ((i + (seed % 3) * 0.37) / 6) * TAU
+      ctx.beginPath()
+      let rr = 24
+      ctx.moveTo(Math.cos(a0) * rr, Math.sin(a0) * rr)
+      for (let k = 1; k <= 6; k++) {
+        rr = 24 + (radius - 30) * (k / 6)
+        const j = (((seed * 31 + i * 17 + k * 13) % 11) - 5) * 0.022
+        ctx.lineTo(Math.cos(a0 + j) * rr, Math.sin(a0 + j) * rr)
+      }
+      ctx.stroke()
+    }
+    ctx.restore()
+  }
+
+  /** Weltenstrahl (Hexo): breiter Strahl ueber die ganze Map, blendet in 14 Ticks aus. */
+  private drawBeamFx(ctx: CanvasRenderingContext2D, p: RenderPlayer, def: { range: number; width: number; durationTicks: number }): void {
+    const k = p.ultTicks / def.durationTicks
+    ctx.save()
+    ctx.translate(p.ultX, p.ultY)
+    ctx.rotate(p.ultAim)
+    const w = def.width * (0.35 + 0.65 * k)
+    const g = ctx.createLinearGradient(0, 0, def.range, 0)
+    g.addColorStop(0, alpha('#ff4b5c', 0.85 * k))
+    g.addColorStop(1, alpha('#ff4b5c', 0.55 * k))
+    ctx.fillStyle = g
+    ctx.fillRect(0, -w / 2, def.range, w)
+    ctx.fillStyle = alpha('#ffffff', 0.95 * k)
+    ctx.fillRect(0, -w * 0.18, def.range, w * 0.36)
+    ctx.restore()
+  }
+
+  /** Riesenwuerfel (Cuby) im Anflug: Schatten am Ziel waechst, Wuerfel faellt von oben. */
+  private drawSlamFx(ctx: CanvasRenderingContext2D, p: RenderPlayer, def: { radius: number; durationTicks: number }): void {
+    const f = Math.min(1, Math.max(0, 1 - p.ultTicks / def.durationTicks))
+    ctx.save()
+    ctx.translate(p.ultX, p.ultY)
+    ctx.fillStyle = alpha('#000000', 0.18 + 0.25 * f)
+    ctx.beginPath()
+    ctx.ellipse(0, 0, def.radius * (0.4 + 0.6 * f), def.radius * (0.4 + 0.6 * f) * 0.7, 0, 0, TAU)
+    ctx.fill()
+    ctx.strokeStyle = alpha('#ff4b5c', 0.9)
+    ctx.lineWidth = 4
+    ctx.setLineDash([12, 8])
+    ctx.beginPath()
+    ctx.arc(0, 0, def.radius, 0, TAU)
+    ctx.stroke()
+    ctx.setLineDash([])
+    const size = def.radius * (1.5 - 0.5 * f)
+    const y = -(1 - f) * (1 - f) * 380
+    const tone = skinTone(skinColor(p.skin))
+    ctx.translate(0, y)
+    ctx.rotate((1 - f) * 1.2)
+    ctx.fillStyle = tone.base
+    ctx.strokeStyle = this.pal.ink
+    ctx.lineWidth = 5
+    ctx.beginPath()
+    ctx.roundRect(-size / 2, -size / 2, size, size, 10)
+    ctx.fill()
+    ctx.stroke()
+    ctx.fillStyle = this.pal.bulletCore
+    ctx.fillRect(-size * 0.3, -size * 0.3, size * 0.22, size * 0.22)
+    ctx.restore()
+  }
 
   /** Speed-Boost: pulsierende Aura unter der Figur + Nachleuchten (Punkte) hinter ihr. */
   private drawBoostAuras(
@@ -775,7 +1062,7 @@ export class CanvasRenderer implements Renderer {
   private drawProjectiles(ctx: CanvasRenderingContext2D, t: number): void {
     const pal = this.pal
     for (const tr of this.projs.values()) {
-      const pr = (CLASSES[tr.kind] ?? CLASSES[0]!).projectileRadius * (tr.big ? 2 : 1)
+      const pr = (CLASSES[tr.kind] ?? CLASSES[0]!).projectileRadius
       // Schweif
       const pts = [...tr.trail, { x: tr.x, y: tr.y }]
       const last = pts[pts.length - 2] ?? pts[0]!
@@ -939,6 +1226,10 @@ export class CanvasRenderer implements Renderer {
   ): void {
     const a = this.anims.get(p.id)
     if (!a) return
+    if (isFlying(classOf(p.skin), p.ultTicks)) {
+      this.drawRocket(ctx, p, t)
+      return
+    }
     const pal = this.pal
     const tone = skinTone(skinColor(p.skin))
     const model = skinModel(p.skin)

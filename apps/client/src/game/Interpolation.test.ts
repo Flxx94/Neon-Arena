@@ -23,6 +23,10 @@ function player(id: string, x: number, y: number) {
     stun: 0,
     root: 0,
     realm: 0,
+    slow: 0,
+    ultAim: 0,
+    ultX: 0,
+    ultY: 0,
   }
 }
 

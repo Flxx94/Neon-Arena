@@ -29,6 +29,12 @@ export class Player extends Schema {
   @type('uint8') root = 0
   /** Welt-Instanz: 0 = Arena, sonst Geisterwelt-Duell (nur Spieler mit gleicher Zahl sehen/treffen sich). */
   @type('uint8') realm = 0
+  /** Verlangsamt (Zappy-Feld): Ticks, die der Effekt noch haelt. */
+  @type('uint8') slow = 0
+  /** Ult-Richtung (rad; Rakete: Flugrichtung) und Ult-Punkt (Strahl-Ursprung, Wuerfel-Ziel) fuer die Darstellung. */
+  @type('float32') ultAim = 0
+  @type('float32') ultX = 0
+  @type('float32') ultY = 0
 }
 
 export class Projectile extends Schema {
@@ -40,8 +46,6 @@ export class Projectile extends Schema {
   @type('number') vy = 0
   /** Charakter-Klasse des Schuetzen (= Modellindex): bestimmt Optik, Schaden und Radius. */
   @type('uint8') kind = 0
-  /** Ult-Schuss (Hexo-Todesnadel): Clients zeichnen ihn gross. */
-  @type('boolean') big = false
 }
 
 export class Pickup extends Schema {
