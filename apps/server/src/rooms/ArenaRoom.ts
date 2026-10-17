@@ -10,6 +10,7 @@ import {
   inputSchema,
   joinSchema,
   skinChangeSchema,
+  MAP_COUNT,
 } from '@neon-arena/shared'
 import { getSessionStore } from '../auth/sessions.js'
 import { getDb } from '../db/prisma.js'
@@ -48,6 +49,8 @@ export class ArenaRoom extends Room<ArenaState> {
     }
     this.startedAt = new Date()
     this.setState(new ArenaState())
+    // Startkarte zufaellig; danach rotiert die Engine pro Runde.
+    this.state.map = Math.floor(Math.random() * MAP_COUNT)
     // 20 Hz Delta-Snapshots (PLAN §4), Simulation 30 Hz fixed.
     this.setPatchRate(1000 / 20)
     this.setSimulationInterval(() => {
@@ -124,7 +127,7 @@ export class ArenaRoom extends Room<ArenaState> {
     player.nickname = session.nickname
     player.skin = parsed.data.skin ?? 0
     player.hp = classOf(player.skin).hp
-    const spawn = findSpawn([...this.state.players.values()])
+    const spawn = findSpawn([...this.state.players.values()], this.state.map)
     player.x = spawn.x
     player.y = spawn.y
     this.state.players.set(client.sessionId, player)

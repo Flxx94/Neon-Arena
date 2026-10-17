@@ -63,6 +63,7 @@ export interface WorldSnapshot {
   timeLeft: number
   phase: string
   winner: string
+  map: number
 }
 
 /** M1-Net-Layer: Connect, Snapshot-Empfang, Input-Senden mit seq (30/s). */
@@ -174,6 +175,7 @@ export class NetClient {
         timeLeft: state.timeLeft as number,
         phase: state.phase as string,
         winner: state.winner as string,
+        map: state.map as number,
       }
       this.snapshots.push(snapshot)
       if (this.snapshots.length > 10) this.snapshots.shift()

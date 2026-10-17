@@ -3,7 +3,8 @@ import {
   ARENA_WIDTH,
   PICKUP_RADIUS,
   CLASSES,
-  OBSTACLES,
+  mapOf,
+  type MapDef,
   PLAYER_RADIUS,
   PROJECTILE_RADIUS,
   classOf,
@@ -21,9 +22,9 @@ import {
   type View,
 } from './map.js'
 import { drawModel } from './models.js'
-import { FONT, PALETTES, alpha, skinTone, type Palette } from './palette.js'
+import { FONT, PALETTES, alpha, paletteFor, skinTone, type Palette } from './palette.js'
 import type { RenderHooks, RenderPlayer, RenderState, Renderer } from './Renderer.js'
-import { currentTheme, onThemeChange } from '../ui/theme.js'
+import { currentTheme, onThemeChange, type Theme } from '../ui/theme.js'
 
 const TAU = Math.PI * 2
 const MODEL_SCALE = 1.3
@@ -101,7 +102,9 @@ export class CanvasRenderer implements Renderer {
   private camX = ARENA_WIDTH / 2
   private camY = ARENA_HEIGHT / 2
   private camInit = false
-  private pal: Palette = PALETTES[currentTheme()]
+  private baseTheme: Theme = currentTheme()
+  private map: MapDef = mapOf(0)
+  private pal: Palette = PALETTES[this.baseTheme]
   private anims = new Map<string, Anim>()
   private projs = new Map<string, ProjTrack>()
   private pickups = new Map<string, PickupTrack>()
@@ -118,9 +121,18 @@ export class CanvasRenderer implements Renderer {
     addEventListener('resize', resize)
     this.resize()
     onThemeChange((t) => {
-      this.pal = PALETTES[t]
+      this.baseTheme = t
+      this.pal = paletteFor(t, this.map.theme)
       this.layerKey = ''
     })
+  }
+
+  /** Aktive Karte (Optik + Strahltest); Layer werden beim naechsten Frame neu gebaut. */
+  setMap(id: number): void {
+    if (id === this.map.id) return
+    this.map = mapOf(id)
+    this.pal = paletteFor(this.baseTheme, this.map.theme)
+    this.layerKey = ''
   }
 
   private resize(): void {
@@ -169,10 +181,10 @@ export class CanvasRenderer implements Renderer {
   private ensureLayers(): { backdrop: HTMLCanvasElement; world: HTMLCanvasElement } {
     const v = this.view
     const ls = Math.min(1.25, Math.max(0.5, v.scale * v.dpr))
-    const key = `${v.w}x${v.h}@${v.dpr}:${ls.toFixed(2)}:${this.pal.theme}`
+    const key = `${v.w}x${v.h}@${v.dpr}:${ls.toFixed(2)}:${this.pal.theme}:${this.map.id}`
     if (!this.backdrop || !this.world || key !== this.layerKey) {
       this.backdrop = buildBackdropLayer(this.pal, v)
-      this.world = buildWorldLayer(this.pal, ls)
+      this.world = buildWorldLayer(this.pal, ls, this.map)
       this.layerKey = key
     }
     return { backdrop: this.backdrop, world: this.world }
@@ -220,7 +232,7 @@ export class CanvasRenderer implements Renderer {
     this.camY = ARENA_HEIGHT / 2 + Math.sin(t * 1.7) * 220
     this.applyCamera()
     this.drawWorld()
-    drawAmbient(this.ctx, this.pal, this.clock)
+    drawAmbient(this.ctx, this.pal, this.clock, this.map)
     this.fx.draw(this.ctx, this.pal)
     this.fx.drawTexts(this.ctx, this.pal)
     // Beim Spielstart soll die Kamera direkt auf den Spieler springen.
@@ -446,6 +458,7 @@ export class CanvasRenderer implements Renderer {
   // Zeichnen
   // ------------------------------------------------------------------------------------
   render(state: RenderState): void {
+    this.setMap(state.map)
     const dt = this.tickClock()
     this.diff(state, dt)
     this.fx.update(dt)
@@ -456,7 +469,7 @@ export class CanvasRenderer implements Renderer {
     if (ownPlayer?.alive) this.followCamera(ownPlayer.x, ownPlayer.y, dt)
     const sh = this.fx.shakeOffset()
     this.drawWorld(sh.x, sh.y)
-    drawAmbient(ctx, pal, t)
+    drawAmbient(ctx, pal, t, this.map)
     if (state.ghost) this.drawGhostWorld(ctx, t)
 
     this.drawPickups(ctx, t)
@@ -487,7 +500,7 @@ export class CanvasRenderer implements Renderer {
   /** Laenge eines Strahls bis zum ersten Hindernis (Slab-Test gegen die Rechtecke), max `maxLen`. */
   private rayLength(x: number, y: number, dx: number, dy: number, maxLen: number): number {
     let best = maxLen
-    for (const o of OBSTACLES) {
+    for (const o of this.map.obstacles) {
       let t0 = 0
       let t1 = best
       for (const [p, d, lo, hi] of [

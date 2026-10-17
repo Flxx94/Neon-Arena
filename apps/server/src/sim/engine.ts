@@ -7,7 +7,8 @@ import {
   FILL_MIN_PLAYERS,
   KILL_SCORE,
   MAX_BOTS_PER_ROOM,
-  OBSTACLES,
+  mapOf,
+  nextMapId,
   PICKUP_HP_AMOUNT,
   PICKUP_MAX_ACTIVE,
   PICKUP_RADIUS,
@@ -150,19 +151,20 @@ export function drainEvents(ctx: SimContext): SimEvent[] {
 }
 
 /** Zufaelliger Spawn ohne Overlap mit lebenden Spielern und ausserhalb von Hindernissen. */
-export function findSpawn(others: Player[]): { x: number; y: number } {
+export function findSpawn(others: Player[], mapId = 0): { x: number; y: number } {
+  const map = mapOf(mapId)
   for (let i = 0; i < 20; i++) {
     const x = PLAYER_RADIUS + Math.random() * (ARENA_WIDTH - 2 * PLAYER_RADIUS)
     const y = PLAYER_RADIUS + Math.random() * (ARENA_HEIGHT - 2 * PLAYER_RADIUS)
-    if (insideObstacle(x, y, PLAYER_RADIUS)) continue
+    if (insideObstacle(map, x, y, PLAYER_RADIUS)) continue
     const overlap = others.some((p) => Math.hypot(p.x - x, p.y - y) < 2 * PLAYER_RADIUS)
     if (!overlap) return { x, y }
   }
   return { x: ARENA_WIDTH / 2, y: 100 }
 }
 
-function insideObstacle(x: number, y: number, margin: number): boolean {
-  return OBSTACLES.some(
+function insideObstacle(map: ReturnType<typeof mapOf>, x: number, y: number, margin: number): boolean {
+  return map.obstacles.some(
     (o) => x > o.x - margin && x < o.x + o.w + margin && y > o.y - margin && y < o.y + o.h + margin,
   )
 }
@@ -277,9 +279,12 @@ function endRound(ctx: SimContext, state: ArenaState): void {
 
 function startRound(ctx: SimContext, state: ArenaState): void {
   state.projectiles.splice(0, state.projectiles.length)
+  // Neue Runde = neue Karte (Rotation); Pickups der alten Karte liegen evtl. in Hindernissen der neuen.
+  state.map = nextMapId(state.map)
+  state.pickups.splice(0, state.pickups.length)
   const placed: Player[] = []
   for (const player of state.players.values()) {
-    const spawn = findSpawn(placed)
+    const spawn = findSpawn(placed, state.map)
     player.x = spawn.x
     player.y = spawn.y
     player.hp = classOf(player.skin).hp
@@ -319,7 +324,7 @@ function handleRespawns(ctx: SimContext, state: ArenaState): void {
     const timers = ctx.timers.get(id)
     if (!timers || ctx.tick < timers.respawnAt) continue
     const alive = [...state.players.values()].filter((p) => p.alive)
-    const spawn = findSpawn(alive)
+    const spawn = findSpawn(alive, state.map)
     player.x = spawn.x
     player.y = spawn.y
     player.hp = classOf(player.skin).hp
@@ -332,6 +337,7 @@ function handleRespawns(ctx: SimContext, state: ArenaState): void {
 }
 
 function movePlayers(ctx: SimContext, state: ArenaState): void {
+  const map = mapOf(state.map)
   for (const [id, player] of state.players) {
     if (!player.alive) continue
     const cls = classOf(player.skin)
@@ -351,6 +357,8 @@ function movePlayers(ctx: SimContext, state: ArenaState): void {
       input.dx,
       input.dy,
       effectiveSpeed(cls, player.ultTicks, player.slow),
+      map.obstacles,
+      map.boostPads,
     )
   }
 }
@@ -475,7 +483,7 @@ function updateProjectiles(ctx: SimContext, state: ArenaState, dt: number): void
       proj.x > ARENA_WIDTH ||
       proj.y < 0 ||
       proj.y > ARENA_HEIGHT ||
-      insideObstacle(proj.x, proj.y, (CLASSES[proj.kind] ?? CLASSES[0]!).projectileRadius)
+      insideObstacle(mapOf(state.map), proj.x, proj.y, (CLASSES[proj.kind] ?? CLASSES[0]!).projectileRadius)
     ) {
       dead = true
     } else if (state.phase === 'play') {
@@ -662,7 +670,7 @@ function resolveSlam(
       o.x += nx * k
       o.y += ny * k
       resolveArena(o, PLAYER_RADIUS)
-      for (const r of OBSTACLES) resolveRect(o, PLAYER_RADIUS, r)
+      for (const r of mapOf(state.map).obstacles) resolveRect(o, PLAYER_RADIUS, r)
     }
   }
 }
@@ -688,7 +696,7 @@ function explodeRocket(ctx: SimContext, state: ArenaState, id: string): void {
   }
   // Blobby taucht an einem anderen Punkt der Map auf (kurzer Spawn-Schutz).
   const others = [...state.players.values()].filter((o) => o !== p && o.alive)
-  const spawn = findSpawn(others)
+  const spawn = findSpawn(others, state.map)
   p.x = spawn.x
   p.y = spawn.y
   p.boost = 0
@@ -716,7 +724,7 @@ function endRealmsOf(ctx: SimContext, state: ArenaState, id: string): void {
 }
 
 /** Platziert `p` direkt neben `target` (auf der Seite, von der `p` kommt), ohne in Waenden zu landen. */
-function placeNextTo(p: Player, target: Player): void {
+function placeNextTo(state: ArenaState, p: Player, target: Player): void {
   let dx = p.x - target.x
   let dy = p.y - target.y
   const len = Math.hypot(dx, dy)
@@ -731,7 +739,7 @@ function placeNextTo(p: Player, target: Player): void {
   p.x = target.x + dx * gap
   p.y = target.y + dy * gap
   resolveArena(p, PLAYER_RADIUS)
-  for (const o of OBSTACLES) resolveRect(p, PLAYER_RADIUS, o)
+  for (const o of mapOf(state.map).obstacles) resolveRect(p, PLAYER_RADIUS, o)
 }
 
 /** Rakete (Blobby): Kontakt mit einem Gegner zuendet die Explosion. */
@@ -796,7 +804,7 @@ function handleUlts(ctx: SimContext, state: ArenaState): void {
         }
       }
       if (!best) continue // kein Ziel: Ladung bleibt, Wunsch verfaellt
-      placeNextTo(caster, best)
+      placeNextTo(state, caster, best)
       if (def.kind === 'pounce') {
         best.stun = Math.max(best.stun, def.stunTicks)
       } else {
@@ -884,7 +892,7 @@ function spawnPickup(ctx: SimContext, state: ArenaState): void {
   for (let i = 0; i < 10; i++) {
     const x = PICKUP_RADIUS + Math.random() * (ARENA_WIDTH - 2 * PICKUP_RADIUS)
     const y = PICKUP_RADIUS + Math.random() * (ARENA_HEIGHT - 2 * PICKUP_RADIUS)
-    if (insideObstacle(x, y, PICKUP_RADIUS)) continue
+    if (insideObstacle(mapOf(state.map), x, y, PICKUP_RADIUS)) continue
     if (alive.some((p) => Math.hypot(p.x - x, p.y - y) < PLAYER_RADIUS + PICKUP_RADIUS)) continue
     const pickup = new Pickup()
     pickup.id = `u${ctx.nextPickupId++}`
@@ -927,7 +935,7 @@ function maintainBots(ctx: SimContext, state: ArenaState): void {
     bot.isBot = true
     bot.skin = Math.floor(Math.random() * SKIN_COUNT)
     const alive = [...state.players.values()].filter((p) => p.alive)
-    const spawn = findSpawn(alive)
+    const spawn = findSpawn(alive, state.map)
     bot.x = spawn.x
     bot.y = spawn.y
     state.players.set(id, bot)
@@ -958,7 +966,7 @@ function thinkBots(ctx: SimContext, state: ArenaState): void {
     // Klassenreichweite: Kurzstrecken-Bots (Assassins) muessen naeher ran, Sniper schiessen frueher.
     const reach = classRange(classOf(bot.skin))
     const aim = Math.atan2(nearest.y - bot.y, nearest.x - bot.x)
-    const visible = lineOfSight(bot, nearest)
+    const visible = lineOfSight(mapOf(state.map), bot, nearest)
     let mx = 0
     let my = 0
     const preferred = Math.min(BOT_PREFERRED_RANGE, reach * 0.6)
@@ -1001,11 +1009,11 @@ function botSide(id: string, tick: number): 1 | -1 {
   return (Math.abs(hash) + Math.floor(tick / 90)) % 2 === 0 ? 1 : -1
 }
 
-function lineOfSight(a: { x: number; y: number }, b: { x: number; y: number }): boolean {
+function lineOfSight(map: ReturnType<typeof mapOf>, a: { x: number; y: number }, b: { x: number; y: number }): boolean {
   for (const t of [0.25, 0.5, 0.75]) {
     const x = a.x + (b.x - a.x) * t
     const y = a.y + (b.y - a.y) * t
-    if (insideObstacle(x, y, 0)) return false
+    if (insideObstacle(map, x, y, 0)) return false
   }
   return true
 }

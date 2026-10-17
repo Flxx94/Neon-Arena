@@ -55,6 +55,8 @@ export interface RenderState {
   ultTargetId: string | null
   /** Pre-Aim der Ult (Ult-Joystick gezogen / Q gehalten): Richtung + Entfernung 0..1. */
   ultPreview: { angle: number; dist: number } | null
+  /** Aktive Karte (`shared/maps`). */
+  map: number
 }
 
 /** Ereignisse, die der Renderer aus Zustandsdifferenzen ableitet (fuer Sound/HUD in main.ts). */
@@ -78,4 +80,6 @@ export interface Renderer {
   worldToScreen(x: number, y: number): { x: number; y: number }
   /** Menue-Hintergrund: Arena ohne Spieler (animiert). */
   renderIdle(): void
+  /** Karte fuer den Menue-Hintergrund. */
+  setMap(id: number): void
 }

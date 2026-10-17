@@ -101,3 +101,16 @@
   - Ult-Joystick (`UltControl.ts`): Tippen = sofort mit aktuellem Ziel, Ziehen ueber die Totzone = Pre-Aim-HUD je Ult-Art, Loslassen loest aus, zurueck zur Mitte + Loslassen
     bricht ab. Desktop: Q halten = Pre-Aim zur Maus, loslassen = ausloesen, Esc = abbrechen.
 - Serverlast: unveraendert O(Spieler) pro Ausloesung; Feld/Rakete O(Spieler) pro Tick nur waehrend aktiver Ult.
+
+## ADR-009: Mehrere Karten (Neon, Frostfeld, Sandsturm, Tempelruine)
+- Status: akzeptiert (2026-10-17)
+- Entscheidung:
+  - `shared/maps.ts`: `MapDef` (id, Name, Theme, Hindernisse, Boost-Felder). Karte 0 = bisherige "Prism Plaza" (Neon), dazu Winter, Wueste, Dschungel.
+    Alle Karten sind punktsymmetrisch (faire Spawns), die Mitte bleibt frei; `maps.test.ts` prueft Grenzen, Symmetrie, freie Boost-Felder und dass nichts eingeschlossen ist.
+  - Bewegung/Physik sind auf jeder Karte identisch: `stepPlayer(..., obstacles, pads)` bekommt nur die Geometrie der Karte uebergeben (Default = Karte 0).
+  - Server: `ArenaState.map` (uint8, additiv, `PROTOCOL_V` bleibt 1). Startkarte zufaellig, danach wechselt `startRound` die Karte (nie dieselbe zweimal hintereinander,
+    Pickups werden geleert). Spawn, Projektil-Treffer, Pickups, Bot-Sicht, Schockwelle und Teleports lesen die Hindernisse aus `state.map`.
+  - Client: `Prediction.map` (Wechsel -> `reset`), `CanvasRenderer.setMap` baut Hintergrund-/Welt-Layer neu; `mapThemes.ts` zeichnet Boden, Mitteldekor, Rand, Waende
+    und Ambient (Schneefall, Sandboeen, Gluehwuermchen/Blaetter) pro Theme; `paletteFor(theme, mapTheme)` ueberschreibt nur Boden-/Wandfarben, Hell/Dunkel bleibt moeglich.
+    Gameplay-Farben (HP, Projektile, UI) bleiben gleich.
+- Serverlast: unveraendert (Hindernislisten sind aehnlich gross, kein neuer Tick-Pfad).
