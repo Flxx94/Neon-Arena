@@ -122,3 +122,18 @@
     (`Prediction.setRocket`), dadurch keine Verzoegerung/Eckigkeit mehr.
   - Nach der Explosion bleibt Blobby 0.9 s unsichtbar/unverwundbar am Explosionsort (`Player.hidden`), erst dann Respawn mit Schutz; Client zeigt Explosion und danach ein Funkeln.
   - Geisterwelt: das Ziel kann sich bewegen, aber nicht schiessen (`root` -> `disarm`; Schuss gesperrt statt Bewegung).
+
+## ADR-011: PROTOCOL_V = 2 (Kartenwechsel / Bugfix "durch Hindernisse")
+- Status: akzeptiert (2026-10-17)
+- Problem: In der ersten Runde nach dem Deployment liefen Spieler/Projektile scheinbar durch Hindernisse. Ursache (wahrscheinlich): Browser-Tabs mit der alten Client-Version
+  (nur Karte 0) waren mit dem neuen Server verbunden, der eine andere Karte spielte -> Client und Server nutzten verschiedene Hindernisse. Der Version-Gate griff nicht,
+  weil `PROTOCOL_V` unveraendert 1 war.
+- Entscheidung: `PROTOCOL_V` auf 2; Regel: bei jeder Aenderung an Sim-, State- oder Kartenlogik erhoehen. Alte Clients werden beim Join abgewiesen und sehen "Neue Version verfuegbar – bitte neu laden".
+
+## ADR-012: Admin-Panel
+- Status: akzeptiert (2026-10-17)
+- Entscheidung:
+  - Panel im Client (`ui/admin.ts`, Strg+Umschalt+A oder `#admin`): Ult-/Punkte-/Kills-/Deaths-/HP-/Schild-Werte setzen oder addieren, Kill/Revive/Kick, Runde neu starten/beenden,
+    Zeit +/-, Karte waehlen. Berechtigung ausschliesslich serverseitig: Nachricht `adminAuth` mit `ADMIN_TOKEN` (Env, nie im Bundle; SHA-256 + `timingSafeEqual`, 5 Versuche/min/IP).
+    Ohne gesetztes Token ist alles deaktiviert. Nachrichten `adminPlayer`/`adminRound` werden mit Zod validiert und nur von angemeldeten Sessions dieser Raum-Instanz akzeptiert.
+  - Logik in `sim/engine.ts` (`adminPlayer`, `adminRound`), Werte werden geklemmt; Aktionen landen im Server-Log. Spielernamen werden im Panel nur per `textContent` gerendert.

@@ -1,6 +1,7 @@
 import { Room } from 'colyseus.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Client } from 'colyseus.js'
+import { PROTOCOL_V } from '@neon-arena/shared'
 import type { AddressInfo } from 'net'
 import { randomUUID } from 'crypto'
 import { issueGuest } from '../auth/guest.js'
@@ -17,7 +18,7 @@ afterEach(() => {
 async function join(port: number, nickname: string): Promise<Room> {
   const { identity } = await issueGuest(nickname)
   const client = new Client(`ws://127.0.0.1:${port}`)
-  return client.joinOrCreate('arena', { nickname, protocolV: 1, userId: identity.userId })
+  return client.joinOrCreate('arena', { nickname, protocolV: PROTOCOL_V, userId: identity.userId })
 }
 
 describe('Matchmaking + Reconnect (M3-01/M3-02)', () => {
@@ -54,7 +55,7 @@ describe('Matchmaking + Reconnect (M3-01/M3-02)', () => {
       const client = new Client(`ws://127.0.0.1:${port}`)
       const room = await client.joinOrCreate('arena', {
         nickname: 'Sticky',
-        protocolV: 1,
+        protocolV: PROTOCOL_V,
         userId: identity.userId,
       })
       const { sessionId, reconnectionToken } = room
@@ -87,7 +88,7 @@ describe('Matchmaking + Reconnect (M3-01/M3-02)', () => {
     try {
       const client = new Client(`ws://127.0.0.1:${port}`)
       await expect(
-        client.joinOrCreate('arena', { nickname: 'Fake', protocolV: 1, userId: randomUUID() }),
+        client.joinOrCreate('arena', { nickname: 'Fake', protocolV: PROTOCOL_V, userId: randomUUID() }),
       ).rejects.toThrow()
     } finally {
       await started.gameServer.gracefullyShutdown(false)

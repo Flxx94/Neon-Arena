@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { inputSchema, joinSchema, loginSchema, registerSchema, skinChangeSchema, skinUpdateSchema } from './schemas.js'
+import { adminAuthSchema, adminPlayerSchema, adminRoundSchema } from './schemas.js'
 import { PROTOCOL_V } from './protocol.js'
 import { SKIN_COUNT } from './skins.js'
 
@@ -10,7 +11,7 @@ describe('shared schemas (M1-01 Vorgriff)', () => {
 
   it('lehnt Script-Nickname ab', () => {
     expect(() =>
-      joinSchema.parse({ nickname: '<script>alert(1)</script>', protocolV: 1 }),
+      joinSchema.parse({ nickname: '<script>alert(1)</script>', protocolV: PROTOCOL_V }),
     ).toThrow()
   })
 
@@ -19,13 +20,13 @@ describe('shared schemas (M1-01 Vorgriff)', () => {
   })
 
   it('akzeptiert Skin im gueltigen Bereich, lehnt ausserhalb ab', () => {
-    expect(joinSchema.parse({ nickname: 'Neo_1', protocolV: 1, skin: 0 }).skin).toBe(0)
-    expect(joinSchema.parse({ nickname: 'Neo_1', protocolV: 1, skin: SKIN_COUNT - 1 }).skin).toBe(
+    expect(joinSchema.parse({ nickname: 'Neo_1', protocolV: PROTOCOL_V, skin: 0 }).skin).toBe(0)
+    expect(joinSchema.parse({ nickname: 'Neo_1', protocolV: PROTOCOL_V, skin: SKIN_COUNT - 1 }).skin).toBe(
       SKIN_COUNT - 1,
     )
-    expect(joinSchema.parse({ nickname: 'Neo_1', protocolV: 1 }).skin).toBeUndefined()
+    expect(joinSchema.parse({ nickname: 'Neo_1', protocolV: PROTOCOL_V }).skin).toBeUndefined()
     for (const skin of [-1, SKIN_COUNT, 1.5, Number.NaN]) {
-      expect(() => joinSchema.parse({ nickname: 'Neo_1', protocolV: 1, skin })).toThrow()
+      expect(() => joinSchema.parse({ nickname: 'Neo_1', protocolV: PROTOCOL_V, skin })).toThrow()
     }
   })
 
@@ -83,5 +84,13 @@ describe('Account-Schemas (ADR-005)', () => {
     expect(skinChangeSchema.safeParse({ skin: SKIN_COUNT }).success).toBe(false)
     expect(skinChangeSchema.safeParse({ skin: -1 }).success).toBe(false)
     expect(skinChangeSchema.safeParse({ skin: 1.5 }).success).toBe(false)
+  })
+
+  it('Admin-Schemas: Defaults, Grenzen, unbekannte Aktionen abgelehnt', () => {
+    expect(adminPlayerSchema.parse({ action: 'ult', target: 'x' })).toMatchObject({ mode: 'set', value: 0 })
+    expect(() => adminPlayerSchema.parse({ action: 'drop-db', target: 'x' })).toThrow()
+    expect(() => adminPlayerSchema.parse({ action: 'ult', target: 'x', value: 1e9 })).toThrow()
+    expect(() => adminRoundSchema.parse({ op: 'nuke' })).toThrow()
+    expect(adminAuthSchema.safeParse({ token: '' }).success).toBe(false)
   })
 })

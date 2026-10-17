@@ -28,6 +28,7 @@ import { Input } from './game/Input.js'
 import { TouchControls } from './game/TouchControls.js'
 import { UltControl, type UltRelease } from './game/UltControl.js'
 import { Interpolator } from './game/Interpolation.js'
+import { initAdmin } from './ui/admin.js'
 import { PALETTES, SKIN_COLORS, skinTone } from './game/palette.js'
 import { Prediction } from './game/Prediction.js'
 import {
@@ -115,6 +116,13 @@ const touch = new TouchControls(
 )
 const net = new NetClient()
 const prediction = new Prediction()
+// Admin-Panel (Strg+Umschalt+A / #admin); Rechte prueft der Server per ADMIN_TOKEN.
+initAdmin({
+  net,
+  players: () => players,
+  ownId: () => net.sessionId,
+  connected: () => connected,
+})
 const interp = new Interpolator()
 const sfx = new SoundFX()
 

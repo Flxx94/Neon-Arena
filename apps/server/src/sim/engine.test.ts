@@ -25,6 +25,8 @@ import {
   ROCKET_TURN_RATE,
 } from '@neon-arena/shared'
 import {
+  adminPlayer,
+  adminRound,
   applyInput,
   createContext,
   drainEvents,
@@ -845,6 +847,60 @@ describe('engine Input-Queue + Boost', () => {
         update(ctx, state)
       }
       expect(p.x).toBeLessThanOrEqual(o.x - PLAYER_RADIUS + 0.01)
+    })
+  })
+  describe('Admin', () => {
+    function two() {
+      const ctx = createContext(false)
+      const state = new ArenaState()
+      const a = addPlayer(state, 'a', 300, 300)
+      const b = addPlayer(state, 'b', 1500, 700)
+      initPlayer(ctx, 'a', { x: 300, y: 300 })
+      initPlayer(ctx, 'b', { x: 1500, y: 700 })
+      return { ctx, state, a, b }
+    }
+
+    it('Ult und Punkte setzen/addieren mit Grenzen', () => {
+      const { ctx, state, a } = two()
+      expect(adminPlayer(ctx, state, { action: 'ult', target: 'a', mode: 'set', value: 400 })).toBe(true)
+      expect(a.ult).toBe(400)
+      adminPlayer(ctx, state, { action: 'ult', target: 'a', mode: 'add', value: 5000 })
+      expect(a.ult).toBe(ULT_MAX)
+      adminPlayer(ctx, state, { action: 'ult', target: 'a', mode: 'add', value: -5000 })
+      expect(a.ult).toBe(0)
+      adminPlayer(ctx, state, { action: 'score', target: 'a', mode: 'add', value: 250 })
+      adminPlayer(ctx, state, { action: 'score', target: 'a', mode: 'add', value: -50 })
+      expect(a.score).toBe(200)
+      expect(adminPlayer(ctx, state, { action: 'score', target: 'nobody', mode: 'set', value: 1 })).toBe(false)
+    })
+
+    it('HP/Schild begrenzt, Kill und Revive', () => {
+      const { ctx, state, a } = two()
+      adminPlayer(ctx, state, { action: 'hp', target: 'a', mode: 'set', value: 9999 })
+      expect(a.hp).toBe(classOf(a.skin).hp)
+      adminPlayer(ctx, state, { action: 'shield', target: 'a', mode: 'set', value: 999 })
+      expect(a.shield).toBe(50)
+      adminPlayer(ctx, state, { action: 'kill', target: 'a', mode: 'set', value: 0 })
+      expect(a.alive).toBe(false)
+      expect(a.kills).toBe(0)
+      adminPlayer(ctx, state, { action: 'revive', target: 'a', mode: 'set', value: 0 })
+      update(ctx, state)
+      expect(a.alive).toBe(true)
+    })
+
+    it('Runde: Karte waehlen/Neustart/Zeit', () => {
+      const { ctx, state, a } = two()
+      a.score = 500
+      adminRound(ctx, state, { op: 'map', value: 2 })
+      expect(state.map).toBe(2)
+      expect(a.score).toBe(0)
+      adminRound(ctx, state, { op: 'restart', value: 0 })
+      expect(state.map).toBe(2)
+      const before = ctx.roundTicksLeft
+      adminRound(ctx, state, { op: 'time', value: 30 })
+      expect(ctx.roundTicksLeft).toBe(before + 30 * TICK_RATE)
+      adminRound(ctx, state, { op: 'end', value: 0 })
+      expect(state.phase).toBe('end')
     })
   })
 })

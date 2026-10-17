@@ -69,6 +69,43 @@ export const skinChangeSchema = z
   })
   .strip()
 
+/** Admin-Panel: Anmeldung mit dem serverseitigen ADMIN_TOKEN (nie im Client-Bundle). */
+export const adminAuthSchema = z.object({ token: z.string().min(1).max(200) }).strip()
+
+export const ADMIN_PLAYER_ACTIONS = [
+  'ult',
+  'score',
+  'kills',
+  'deaths',
+  'hp',
+  'shield',
+  'kill',
+  'revive',
+  'kick',
+  'skin',
+] as const
+export type AdminPlayerAction = (typeof ADMIN_PLAYER_ACTIONS)[number]
+
+/** Aktion auf einen Spieler der eigenen Raum-Instanz: `set` setzt, `add` addiert (auch negativ). */
+export const adminPlayerSchema = z
+  .object({
+    action: z.enum(ADMIN_PLAYER_ACTIONS),
+    target: z.string().min(1).max(64),
+    mode: z.enum(['set', 'add']).default('set'),
+    value: z.number().finite().min(-100000).max(100000).default(0),
+  })
+  .strip()
+
+export const ADMIN_ROUND_OPS = ['restart', 'end', 'map', 'time'] as const
+export const adminRoundSchema = z
+  .object({
+    op: z.enum(ADMIN_ROUND_OPS),
+    value: z.number().finite().min(-1000).max(1000).default(0),
+  })
+  .strip()
+
+export type AdminPlayerInput = z.infer<typeof adminPlayerSchema>
+export type AdminRoundInput = z.infer<typeof adminRoundSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
 export type LoginInput = z.infer<typeof loginSchema>
 export type JoinInput = z.infer<typeof joinSchema>
