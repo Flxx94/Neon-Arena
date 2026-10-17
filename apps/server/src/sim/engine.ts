@@ -19,6 +19,7 @@ import {
   REWIND_TICKS,
   ROUND_END_SECONDS,
   ROUND_SECONDS,
+  MAP_COUNT,
   SHIELD_MAX,
   SKIN_COUNT,
   CLASSES,
@@ -277,10 +278,10 @@ function endRound(ctx: SimContext, state: ArenaState): void {
   ctx.events.push({ type: 'roundEnd', winner })
 }
 
-function startRound(ctx: SimContext, state: ArenaState): void {
+function startRound(ctx: SimContext, state: ArenaState, mapId?: number): void {
   state.projectiles.splice(0, state.projectiles.length)
   // Neue Runde = neue Karte (Rotation); Pickups der alten Karte liegen evtl. in Hindernissen der neuen.
-  state.map = nextMapId(state.map)
+  state.map = mapId ?? nextMapId(state.map)
   state.pickups.splice(0, state.pickups.length)
   const placed: Player[] = []
   for (const player of state.players.values()) {
@@ -1016,4 +1017,91 @@ function lineOfSight(map: ReturnType<typeof mapOf>, a: { x: number; y: number },
     if (insideObstacle(map, x, y, 0)) return false
   }
   return true
+}
+
+// --- Admin (Panel): nur ueber ArenaRoom nach ADMIN_TOKEN-Auth erreichbar ---
+
+const clampInt = (v: number, lo: number, hi: number): number =>
+  Math.min(hi, Math.max(lo, Math.round(v)))
+
+export interface AdminPlayerCmd {
+  action: 'ult' | 'score' | 'kills' | 'deaths' | 'hp' | 'shield' | 'kill' | 'revive' | 'kick' | 'skin'
+  target: string
+  mode: 'set' | 'add'
+  value: number
+}
+
+/** Wirkt `kick` nicht selbst (Room trennt die Verbindung); Rueckgabe false = Ziel/Aktion unbekannt. */
+export function adminPlayer(ctx: SimContext, state: ArenaState, cmd: AdminPlayerCmd): boolean {
+  const p = state.players.get(cmd.target)
+  if (!p) return false
+  const val = (cur: number, lo: number, hi: number): number =>
+    clampInt(cmd.mode === 'add' ? cur + cmd.value : cmd.value, lo, hi)
+  switch (cmd.action) {
+    case 'ult':
+      p.ult = val(p.ult, 0, ULT_MAX)
+      return true
+    case 'score':
+      p.score = val(p.score, -100000, 100000)
+      return true
+    case 'kills':
+      p.kills = val(p.kills, 0, 100000)
+      return true
+    case 'deaths':
+      p.deaths = val(p.deaths, 0, 100000)
+      return true
+    case 'hp':
+      if (!p.alive) return false
+      p.hp = val(p.hp, 1, classOf(p.skin).hp)
+      return true
+    case 'shield':
+      if (!p.alive) return false
+      p.shield = val(p.shield, 0, SHIELD_MAX)
+      return true
+    case 'skin':
+      p.skin = clampInt(cmd.value, 0, SKIN_COUNT - 1)
+      return true
+    case 'kill': {
+      if (!p.alive) return false
+      p.ultTicks = 0
+      p.hidden = 0
+      const timers = ctx.timers.get(cmd.target)
+      if (timers) timers.protectedUntil = -1
+      damage(ctx, state, cmd.target, '', p.hp + p.shield + 1, 0, false)
+      return true
+    }
+    case 'revive': {
+      if (p.alive) return false
+      const timers = ctx.timers.get(cmd.target)
+      if (timers) timers.respawnAt = ctx.tick
+      return true
+    }
+    case 'kick':
+      return true
+  }
+}
+
+export interface AdminRoundCmd {
+  op: 'restart' | 'end' | 'map' | 'time'
+  value: number
+}
+
+export function adminRound(ctx: SimContext, state: ArenaState, cmd: AdminRoundCmd): void {
+  switch (cmd.op) {
+    case 'restart':
+      startRound(ctx, state, state.map)
+      break
+    case 'map':
+      startRound(ctx, state, clampInt(cmd.value, 0, MAP_COUNT - 1))
+      break
+    case 'end':
+      if (state.phase === 'play') endRound(ctx, state)
+      break
+    case 'time':
+      if (state.phase === 'play') {
+        ctx.roundTicksLeft = Math.max(TICK_RATE, ctx.roundTicksLeft + Math.round(cmd.value) * TICK_RATE)
+        state.timeLeft = Math.max(0, Math.ceil(ctx.roundTicksLeft / TICK_RATE))
+      }
+      break
+  }
 }

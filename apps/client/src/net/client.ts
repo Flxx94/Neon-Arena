@@ -1,5 +1,5 @@
 import { Client, Room } from 'colyseus.js'
-import { MAX_INPUT_PER_SECOND } from '@neon-arena/shared'
+import { MAX_INPUT_PER_SECOND, PROTOCOL_V, type AdminPlayerInput, type AdminRoundInput } from '@neon-arena/shared'
 
 import { SERVER_URL, type Identity } from './auth.js'
 
@@ -81,10 +81,11 @@ export class NetClient {
   async join(identity: Identity, skin: number, events: NetEvents): Promise<void> {
     this.room = await this.client.joinOrCreate('arena', {
       nickname: identity.nickname,
-      protocolV: 1,
+      protocolV: PROTOCOL_V,
       userId: identity.userId,
       skin,
     })
+    this.room.onMessage('adminAuth', (msg: { ok: boolean }) => this.onAdminAuth?.(!!msg?.ok))
     this.room.onMessage('killfeed', (msg: { by: string; victim: string }) => {
       events.onKill(String(msg.by), String(msg.victim))
     })
@@ -202,6 +203,21 @@ export class NetClient {
         : { kind: 'input', seq, dx, dy, aim, fire },
     )
     return seq
+  }
+
+  /** Admin-Panel: Antwort auf `adminAuth` (true = angemeldet). */
+  onAdminAuth: ((ok: boolean) => void) | null = null
+
+  adminAuth(token: string): void {
+    this.room?.send('adminAuth', { token })
+  }
+
+  adminPlayer(cmd: Pick<AdminPlayerInput, 'action' | 'target'> & Partial<Pick<AdminPlayerInput, 'mode' | 'value'>>): void {
+    this.room?.send('adminPlayer', cmd)
+  }
+
+  adminRound(cmd: Pick<AdminRoundInput, 'op'> & Partial<Pick<AdminRoundInput, 'value'>>): void {
+    this.room?.send('adminRound', cmd)
   }
 
   /** Charakterwechsel (nur waehrend man tot ist; sonst ignoriert der Server die Nachricht). */

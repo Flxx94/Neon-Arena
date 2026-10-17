@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { inputSchema, joinSchema, loginSchema, registerSchema, skinChangeSchema, skinUpdateSchema } from './schemas.js'
+import { adminAuthSchema, adminPlayerSchema, adminRoundSchema } from './schemas.js'
 import { PROTOCOL_V } from './protocol.js'
 import { SKIN_COUNT } from './skins.js'
 
@@ -83,5 +84,13 @@ describe('Account-Schemas (ADR-005)', () => {
     expect(skinChangeSchema.safeParse({ skin: SKIN_COUNT }).success).toBe(false)
     expect(skinChangeSchema.safeParse({ skin: -1 }).success).toBe(false)
     expect(skinChangeSchema.safeParse({ skin: 1.5 }).success).toBe(false)
+  })
+
+  it('Admin-Schemas: Defaults, Grenzen, unbekannte Aktionen abgelehnt', () => {
+    expect(adminPlayerSchema.parse({ action: 'ult', target: 'x' })).toMatchObject({ mode: 'set', value: 0 })
+    expect(() => adminPlayerSchema.parse({ action: 'drop-db', target: 'x' })).toThrow()
+    expect(() => adminPlayerSchema.parse({ action: 'ult', target: 'x', value: 1e9 })).toThrow()
+    expect(() => adminRoundSchema.parse({ op: 'nuke' })).toThrow()
+    expect(adminAuthSchema.safeParse({ token: '' }).success).toBe(false)
   })
 })

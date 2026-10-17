@@ -114,3 +114,11 @@
     und Ambient (Schneefall, Sandboeen, Gluehwuermchen/Blaetter) pro Theme; `paletteFor(theme, mapTheme)` ueberschreibt nur Boden-/Wandfarben, Hell/Dunkel bleibt moeglich.
     Gameplay-Farben (HP, Projektile, UI) bleiben gleich.
 - Serverlast: unveraendert (Hindernislisten sind aehnlich gross, kein neuer Tick-Pfad).
+
+## ADR-012: Admin-Panel
+- Status: akzeptiert (2026-10-17)
+- Entscheidung:
+  - Panel im Client (`ui/admin.ts`, Strg+Umschalt+A oder `#admin`): Ult-/Punkte-/Kills-/Deaths-/HP-/Schild-Werte setzen oder addieren, Kill/Revive/Kick, Runde neu starten/beenden,
+    Zeit +/-, Karte waehlen. Berechtigung ausschliesslich serverseitig: Nachricht `adminAuth` mit `ADMIN_TOKEN` (Env, nie im Bundle; SHA-256 + `timingSafeEqual`, 5 Versuche/min/IP).
+    Ohne gesetztes Token ist alles deaktiviert. Nachrichten `adminPlayer`/`adminRound` werden mit Zod validiert und nur von angemeldeten Sessions dieser Raum-Instanz akzeptiert.
+  - Logik in `sim/engine.ts` (`adminPlayer`, `adminRound`), Werte werden geklemmt; Aktionen landen im Server-Log. Spielernamen werden im Panel nur per `textContent` gerendert.

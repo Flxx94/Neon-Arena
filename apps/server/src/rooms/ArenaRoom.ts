@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { Client, Room } from '@colyseus/core'
 import {
   INPUT_BURST_TOLERANCE,
@@ -10,6 +11,9 @@ import {
   inputSchema,
   joinSchema,
   skinChangeSchema,
+  adminAuthSchema,
+  adminPlayerSchema,
+  adminRoundSchema,
   MAP_COUNT,
 } from '@neon-arena/shared'
 import { getSessionStore } from '../auth/sessions.js'
@@ -17,6 +21,8 @@ import { getDb } from '../db/prisma.js'
 import { persistMatch, type ResultsDb } from '../db/results.js'
 import { checkLimit, getRateStore } from '../ratelimit/limiter.js'
 import {
+  adminPlayer,
+  adminRound,
   applyInput,
   createContext,
   drainEvents,
@@ -37,6 +43,8 @@ export class ArenaRoom extends Room<ArenaState> {
   private startedAt = new Date()
   /** sessionId -> userId (nur echte Spieler; Bots haben keins). */
   private userIds = new Map<string, string>()
+  /** Sessions, die sich mit dem ADMIN_TOKEN angemeldet haben (nur diese Raum-Instanz). */
+  private admins = new Set<string>()
 
   onCreate() {
     // Bots per Env schaltbar (PLAN M3-06): Tests setzen BOTS_ENABLED=false.
@@ -80,6 +88,11 @@ export class ArenaRoom extends Room<ArenaState> {
     this.onMessage('input', (client, raw) => {
       void this.handleInput(client, raw)
     })
+    this.onMessage('adminAuth', (client, raw) => {
+      void this.handleAdminAuth(client, raw)
+    })
+    this.onMessage('adminPlayer', (client, raw) => this.handleAdminPlayer(client, raw))
+    this.onMessage('adminRound', (client, raw) => this.handleAdminRound(client, raw))
     // Charakterwechsel: nur waehrend man tot ist; wirkt ab dem naechsten Respawn (HP/Waffe/Tempo der Klasse).
     this.onMessage('skin', (client, raw) => {
       const parsed = skinChangeSchema.safeParse(raw)
@@ -89,6 +102,51 @@ export class ArenaRoom extends Room<ArenaState> {
         if (ok && !player.alive) player.skin = parsed.data.skin
       })
     })
+  }
+
+  /** Admin-Panel: Token (ADMIN_TOKEN) pruefen; ohne gesetztes Token ist das Panel komplett deaktiviert. */
+  private isAdmin(client: Client): boolean {
+    return this.admins.has(client.sessionId)
+  }
+
+  private async handleAdminAuth(client: Client, raw: unknown): Promise<void> {
+    const expected = process.env.ADMIN_TOKEN
+    const parsed = adminAuthSchema.safeParse(raw)
+    const reply = (ok: boolean): void => client.send('adminAuth', { ok })
+    if (!expected || !parsed.success) return reply(false)
+    if (!(await checkLimit(getRateStore(), `admin-auth:${clientIp(client)}`, 5, 60_000))) return reply(false)
+    const a = createHash('sha256').update(parsed.data.token).digest()
+    const b = createHash('sha256').update(expected).digest()
+    const ok = timingSafeEqual(a, b)
+    if (ok) this.admins.add(client.sessionId)
+    reply(ok)
+  }
+
+  private handleAdminPlayer(client: Client, raw: unknown): void {
+    if (!this.isAdmin(client)) return
+    const parsed = adminPlayerSchema.safeParse(raw)
+    if (!parsed.success) return
+    const cmd = parsed.data
+    if (cmd.action === 'kick') {
+      const player = this.state.players.get(cmd.target)
+      if (!player) return
+      const victim = this.clients.find((c) => c.sessionId === cmd.target)
+      if (victim) victim.leave(4403)
+      else removePlayer(this.ctx, this.state, cmd.target) // Bot
+      console.log(`[admin] kick ${player.nickname}`)
+      return
+    }
+    if (adminPlayer(this.ctx, this.state, cmd)) {
+      console.log(`[admin] ${cmd.action} ${cmd.mode} ${cmd.value} -> ${this.state.players.get(cmd.target)?.nickname}`)
+    }
+  }
+
+  private handleAdminRound(client: Client, raw: unknown): void {
+    if (!this.isAdmin(client)) return
+    const parsed = adminRoundSchema.safeParse(raw)
+    if (!parsed.success) return
+    adminRound(this.ctx, this.state, parsed.data)
+    console.log(`[admin] round ${parsed.data.op} ${parsed.data.value}`)
   }
 
   private async handleInput(client: Client, raw: unknown): Promise<void> {
@@ -136,6 +194,7 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 
   async onLeave(client: Client, consented: boolean) {
+    this.admins.delete(client.sessionId)
     this.userIds.delete(client.sessionId)
     // Explizites leave() -> sofort entfernen; Abriss -> 15 s Grace (M3-01).
     if (consented) {
