@@ -832,10 +832,11 @@ playBtn.addEventListener('click', () => {
         }
         const own = players.find((p) => p.id === net.sessionId)
         if (own) {
-          prediction.speed = effectiveSpeed(classOf(own.skin), own.ultTicks, own.slow)
-          // Rakete: Flug ist rein serverseitig (ueber Hindernisse), keine Vorhersage.
-          if (isFlying(classOf(own.skin), own.ultTicks)) prediction.reset(own.x, own.y)
-          else prediction.reconcile(own.x, own.y, own.ackSeq, own.boost)
+          const flying = isFlying(classOf(own.skin), own.ultTicks)
+          prediction.speed = effectiveSpeed(classOf(own.skin), own.ultTicks, flying ? 0 : own.slow)
+          // Rakete: gleiche Lenk-Schrittfunktion wie der Server (weiche Kurven, keine Wartezeit).
+          prediction.setRocket(flying, own.ultAim)
+          prediction.reconcile(own.x, own.y, own.ackSeq, own.boost)
         }
       },
       onKill: (by, victim) => pushKill(by, victim),
@@ -997,7 +998,10 @@ function inputTick(): void {
   const seq = net.sendInput(dx, dy, aim, firing, ultNow && ultReq ? { ua: ultReq.ua, ud: ultReq.ud } : null)
   if (seq >= 0) {
     const now = performance.now()
-    if (own) prediction.speed = effectiveSpeed(classOf(own.skin), own.ultTicks, own.slow)
+    if (own) {
+      const fl = isFlying(classOf(own.skin), own.ultTicks)
+      prediction.speed = effectiveSpeed(classOf(own.skin), own.ultTicks, fl ? 0 : own.slow)
+    }
     const cooldownMs = own ? (classOf(own.skin).cooldownTicks / TICK_RATE) * 1000 : 250
     if (firing && own?.alive && now - lastShootSfx > cooldownMs) {
       lastShootSfx = now
@@ -1006,9 +1010,8 @@ function inputTick(): void {
     }
     const boostBefore = prediction.boostLeft
     // Betaeubt/festgewurzelt: der Server bewegt nicht, also sagt die Prediction auch keine Bewegung voraus.
-    const held = !!own && (own.stun > 0 || own.root > 0)
-    const flying = !!own && isFlying(classOf(own.skin), own.ultTicks)
-    if (!flying) prediction.applyLocal({ seq, dx: held ? 0 : dx, dy: held ? 0 : dy })
+    const held = !!own && (own.stun > 0 || own.hidden > 0)
+    prediction.applyLocal({ seq, dx: held ? 0 : dx, dy: held ? 0 : dy })
     if (boostBefore <= 0 && prediction.boostLeft > 0 && own?.alive) {
       sfx.boost()
       renderer.fx.text(prediction.predicted.x, prediction.predicted.y - 34, 'BOOST!', '#ffd23f', 20)
@@ -1178,17 +1181,12 @@ function frame() {
   lastOwnRender = ownPos
   const ownNow = players.find((p) => p.id === ownId)
   const ownRealm = ownNow?.realm ?? 0
-  const ownFlying = !!ownNow && isFlying(classOf(ownNow.skin), ownNow.ultTicks)
   ultCtl.update()
   const rendered = players
     .filter((p) => p.id === ownId || p.realm === ownRealm) // Geisterwelt: nur Mitspieler derselben Welt sichtbar
     .map((p) => {
-    if (p.id === ownId && !ownFlying)
+    if (p.id === ownId)
       return { ...p, x: ownPos.x, y: ownPos.y, aim: liveAim, boost: prediction.boostLeft }
-    if (p.id === ownId) {
-      const ip = interp.sample(p.id, now)
-      return { ...p, x: ip?.x ?? p.x, y: ip?.y ?? p.y, aim: liveAim }
-    }
     const interpPos = interp.sample(p.id, now)
     return interpPos ? { ...p, x: interpPos.x, y: interpPos.y } : p
   })

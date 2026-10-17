@@ -114,3 +114,11 @@
     und Ambient (Schneefall, Sandboeen, Gluehwuermchen/Blaetter) pro Theme; `paletteFor(theme, mapTheme)` ueberschreibt nur Boden-/Wandfarben, Hell/Dunkel bleibt moeglich.
     Gameplay-Farben (HP, Projektile, UI) bleiben gleich.
 - Serverlast: unveraendert (Hindernislisten sind aehnlich gross, kein neuer Tick-Pfad).
+
+## ADR-010: Raketen-Lenkung, Explosions-Wartezeit, Boo-Ziel entwaffnet
+- Status: akzeptiert (2026-10-17)
+- Entscheidung:
+  - Rakete lenkt mit begrenzter Rate (`ROCKET_TURN_RATE`, `stepRocket` in shared/physics) statt Kurs-Snap; der Client sagt den Flug mit derselben Funktion voraus
+    (`Prediction.setRocket`), dadurch keine Verzoegerung/Eckigkeit mehr.
+  - Nach der Explosion bleibt Blobby 0.9 s unsichtbar/unverwundbar am Explosionsort (`Player.hidden`), erst dann Respawn mit Schutz; Client zeigt Explosion und danach ein Funkeln.
+  - Geisterwelt: das Ziel kann sich bewegen, aber nicht schiessen (`root` -> `disarm`; Schuss gesperrt statt Bewegung).

@@ -18,8 +18,9 @@ export interface RenderPlayer {
   /** Ult-Status (aktiv / betaeubt / gewurzelt) fuer Auren. */
   ultTicks: number
   stun: number
-  root: number
+  disarm: number
   slow: number
+  hidden: number
   /** Ult-Richtung (Rakete: Flugrichtung) und Ult-Punkt (Strahl-Ursprung, Wuerfel-Ziel). */
   ultAim: number
   ultX: number

@@ -137,3 +137,27 @@ export function stepPlayer(
   for (const obstacle of obstacles) resolveRect(p, PLAYER_RADIUS, obstacle)
   return onBoostPad(p, pads) ? BOOST_TICKS : Math.max(0, boost - 1)
 }
+
+/** Maximale Lenkgeschwindigkeit der Rakete (rad/s): weiche Kurven statt eckiger Richtungswechsel. */
+export const ROCKET_TURN_RATE = 4.6
+
+/**
+ * Ein Flug-Tick der Rakete (Server UND Client-Prediction): Kurs dreht mit begrenzter Rate zur
+ * Eingaberichtung (ohne Eingabe: geradeaus), danach Vorwaertsschritt. Rueckgabe = neuer Kurs (rad).
+ * Nur der Arena-Rand begrenzt, Hindernisse sind egal. Mutiert p.
+ */
+export function stepRocket(p: Vec, heading: number, dx: number, dy: number, speed: number): number {
+  let h = heading
+  if (Math.hypot(dx, dy) > 0.1) {
+    let d = Math.atan2(dy, dx) - h
+    while (d > Math.PI) d -= 2 * Math.PI
+    while (d < -Math.PI) d += 2 * Math.PI
+    const maxTurn = ROCKET_TURN_RATE / TICK_RATE
+    h += clamp(d, -maxTurn, maxTurn)
+  }
+  const step = speed / TICK_RATE
+  p.x += Math.cos(h) * step
+  p.y += Math.sin(h) * step
+  resolveArena(p, PLAYER_RADIUS)
+  return h
+}

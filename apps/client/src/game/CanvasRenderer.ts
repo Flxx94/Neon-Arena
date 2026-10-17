@@ -356,6 +356,11 @@ export class CanvasRenderer implements Renderer {
         }
       }
       this.prevUlt.set(p.id, p.ultTicks)
+      // Blobby taucht nach der Raketen-Explosion wieder auf: Funkeln am neuen Ort.
+      if (this.initialized && (this.prevHidden.get(p.id) ?? 0) > 0 && p.hidden === 0 && p.alive) {
+        this.fx.spawn(p.x, p.y, skinTone(skinColor(p.skin)).base)
+      }
+      this.prevHidden.set(p.id, p.hidden)
     }
     for (const [id, a] of this.anims) if (!a.seen) this.anims.delete(id)
 
@@ -473,7 +478,7 @@ export class CanvasRenderer implements Renderer {
     if (state.ghost) this.drawGhostWorld(ctx, t)
 
     this.drawPickups(ctx, t)
-    const order = [...state.players].filter((p) => p.alive).sort((a, b) => a.y - b.y)
+    const order = [...state.players].filter((p) => p.alive && p.hidden === 0).sort((a, b) => a.y - b.y)
     this.drawShadows(ctx, order, t)
     if (ownPlayer?.alive) this.drawAimBeam(ctx, ownPlayer, t)
     this.drawProjectiles(ctx, t)
@@ -595,7 +600,7 @@ export class CanvasRenderer implements Renderer {
         ctx.stroke()
         ctx.restore()
       }
-      if (p.root > 0) {
+      if (p.disarm > 0) {
         ctx.save()
         ctx.translate(p.x, p.y + r * 0.6)
         ctx.strokeStyle = alpha('#b57bff', 0.9)
@@ -681,6 +686,7 @@ export class CanvasRenderer implements Renderer {
 
   private boostTrailAt = new Map<string, number>()
   private prevUlt = new Map<string, number>()
+  private prevHidden = new Map<string, number>()
   private rocketPos = new Map<string, { x: number; y: number }>()
   private bursts: { x: number; y: number; r: number; t: number; color: string }[] = []
 
