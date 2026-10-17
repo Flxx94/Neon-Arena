@@ -45,6 +45,7 @@ import {
   resolveCircle,
   resolveRect,
   stepPlayer,
+  stepRocket,
   segmentHitsCircle,
   type PickupKind,
   type ValidatedInput,
@@ -293,8 +294,9 @@ function startRound(ctx: SimContext, state: ArenaState): void {
     player.ult = 0
     player.ultTicks = 0
     player.stun = 0
-    player.root = 0
+    player.disarm = 0
     player.slow = 0
+    player.hidden = 0
     player.realm = 0
     player.alive = true
     player.kills = 0
@@ -344,12 +346,13 @@ function movePlayers(ctx: SimContext, state: ArenaState): void {
     const input = ctx.inputs.get(id)
     // Rakete (Blobby-Ult): fliegt dauerhaft in `ultAim`, Eingabe lenkt; ignoriert Hindernisse und Betaeubung.
     if (isFlying(cls, player.ultTicks)) {
-      flyRocket(player, cls.speed * cls.ult.speedMult, input?.dx ?? 0, input?.dy ?? 0)
+      flyRocket(player, effectiveSpeed(cls, player.ultTicks, 0), input?.dx ?? 0, input?.dy ?? 0)
       continue
     }
+    if (player.hidden > 0) continue
     if (!input || ctx.stalled.has(id)) continue
-    // Betaeubt/festgewurzelt: keine Bewegung (Client-Prediction spiegelt das ueber stun/root).
-    if (player.stun > 0 || player.root > 0) continue
+    // Betaeubt: keine Bewegung (Client-Prediction spiegelt das ueber stun).
+    if (player.stun > 0) continue
     // Gleiche Schrittfunktion wie die Client-Prediction (shared/physics): Boost inklusive.
     player.boost = stepPlayer(
       player,
@@ -364,11 +367,7 @@ function movePlayers(ctx: SimContext, state: ArenaState): void {
 }
 
 function flyRocket(player: Player, speed: number, dx: number, dy: number): void {
-  if (Math.hypot(dx, dy) > 0.1) player.ultAim = Math.atan2(dy, dx)
-  const step = speed / TICK_RATE
-  player.x += Math.cos(player.ultAim) * step
-  player.y += Math.sin(player.ultAim) * step
-  resolveArena(player, PLAYER_RADIUS) // nur Arena-Rand, keine Hindernisse
+  player.ultAim = stepRocket(player, player.ultAim, dx, dy, speed)
 }
 
 function resolvePlayerCollisions(state: ArenaState): void {
@@ -378,7 +377,7 @@ function resolvePlayerCollisions(state: ArenaState): void {
       const [, a] = alive[i]!
       const [, b] = alive[j]!
       if (a.realm !== b.realm) continue
-      if (isFlying(classOf(a.skin), a.ultTicks) || isFlying(classOf(b.skin), b.ultTicks)) continue
+      if (untouchable(a) || untouchable(b)) continue
       if (resolveCircle(a, PLAYER_RADIUS, b, PLAYER_RADIUS)) {
         resolveArena(a, PLAYER_RADIUS)
         resolveArena(b, PLAYER_RADIUS)
@@ -443,7 +442,8 @@ function fireWeapons(ctx: SimContext, state: ArenaState): void {
     // Charakter-Waffe (shared/classes): Abklingzeit, Tempo, Radius, Reichweite je Klasse.
     const cls = classOf(player.skin)
     if (player.stun > 0) continue // betaeubt: kein Schuss
-    if (isFlying(cls, player.ultTicks)) continue // Rakete schiesst nicht
+    if (untouchable(player)) continue // Rakete/Explosions-Wartezeit schiesst nicht
+    if (player.disarm > 0) continue // Geisterwelt-Ziel: entwaffnet (bewegen ja, schiessen nein)
     // Fire-Rate serverseitig erzwungen (M2-03): zu fruehe Schuesse verfallen.
     if (ctx.tick - timers.lastFireTick < cls.cooldownTicks) continue
     timers.lastFireTick = ctx.tick
@@ -511,7 +511,7 @@ function checkHits(
   for (const [id, player] of state.players) {
     if (id === proj.owner || !player.alive) continue
     if (player.realm !== ownerRealm) continue // Geisterwelt: nur Spieler derselben Welt treffen sich
-    if (isFlying(classOf(player.skin), player.ultTicks)) continue // Rakete ist unverwundbar
+    if (untouchable(player)) continue // Rakete ist unverwundbar
     const timers = ctx.timers.get(id)
     if (timers && ctx.tick < timers.protectedUntil) continue
     const hist = ctx.histories.get(id)
@@ -554,7 +554,7 @@ function damage(
 ): void {
   const victim = state.players.get(victimId)
   if (!victim || !victim.alive) return
-  if (isFlying(classOf(victim.skin), victim.ultTicks)) return // Rakete: unverwundbar
+  if (untouchable(victim)) return // Rakete: unverwundbar
   let rest = amount
   const dealt = rest
   if (victim.shield > 0) {
@@ -584,8 +584,9 @@ function damage(
   endRealmsOf(ctx, state, victimId)
   victim.ultTicks = 0
   victim.stun = 0
-  victim.root = 0
+  victim.disarm = 0
   victim.slow = 0
+  victim.hidden = 0
   const killer = state.players.get(killerId)
   if (killer) {
     killer.kills += 1
@@ -609,8 +610,12 @@ function tickStatus(ctx: SimContext, state: ArenaState): void {
   for (const [id, player] of state.players) {
     if (!player.alive) continue
     if (player.stun > 0) player.stun--
-    if (player.root > 0) player.root--
+    if (player.disarm > 0) player.disarm--
     if (player.slow > 0) player.slow--
+    if (player.hidden > 0) {
+      player.hidden--
+      if (player.hidden === 0) respawnAfterRocket(ctx, state, id, player)
+    }
     if (player.ultTicks > 0) {
       const def = classOf(player.skin).ult
       if (def.kind === 'field') applyField(ctx, state, id, player, def)
@@ -624,6 +629,12 @@ function tickStatus(ctx: SimContext, state: ArenaState): void {
     if (passive) chargeUlt(player, 1)
   }
 }
+
+/** Wartezeit (Ticks) zwischen Raketen-Explosion und Respawn: die Explosion soll sichtbar sein. */
+const ROCKET_HIDE_TICKS = Math.ceil(0.9 * TICK_RATE)
+
+/** Rakete im Flug oder wartende Blobby nach der Explosion: kein Treffer, keine Kollision, kein Schuss. */
+const untouchable = (p: Player): boolean => p.hidden > 0 || isFlying(classOf(p.skin), p.ultTicks)
 
 const isProtected = (ctx: SimContext, id: string): boolean =>
   ctx.tick < (ctx.timers.get(id)?.protectedUntil ?? -1)
@@ -657,7 +668,7 @@ function resolveSlam(
   const ty = p.ultY
   for (const [oid, o] of state.players) {
     if (oid === id || !o.alive || o.realm !== p.realm || isProtected(ctx, oid)) continue
-    if (isFlying(classOf(o.skin), o.ultTicks)) continue
+    if (untouchable(o)) continue
     const dx = o.x - tx
     const dy = o.y - ty
     const d = Math.hypot(dx, dy)
@@ -684,7 +695,7 @@ function explodeRocket(ctx: SimContext, state: ArenaState, id: string): void {
   p.ultTicks = 0
   for (const [oid, o] of state.players) {
     if (oid === id || !o.alive || o.realm !== p.realm || isProtected(ctx, oid)) continue
-    if (isFlying(classOf(o.skin), o.ultTicks)) continue
+    if (untouchable(o)) continue
     if (Math.hypot(o.x - p.x, o.y - p.y) <= def.radius + PLAYER_RADIUS) {
       damage(ctx, state, oid, id, ONE_SHOT, 0, false)
     }
@@ -694,12 +705,17 @@ function explodeRocket(ctx: SimContext, state: ArenaState, id: string): void {
     const a = (i / def.salvo) * 2 * Math.PI
     spawnProjectile(ctx, state, id, p, p.x, p.y, a, ttl)
   }
-  // Blobby taucht an einem anderen Punkt der Map auf (kurzer Spawn-Schutz).
+  // Blobby bleibt kurz unsichtbar/unverwundbar am Explosionsort (Client zeigt die Explosion), dann Respawn.
+  p.hidden = ROCKET_HIDE_TICKS
+  p.boost = 0
+}
+
+/** Nach der Explosion: Blobby taucht an einem anderen Punkt der Map auf (kurzer Spawn-Schutz). */
+function respawnAfterRocket(ctx: SimContext, state: ArenaState, id: string, p: Player): void {
   const others = [...state.players.values()].filter((o) => o !== p && o.alive)
   const spawn = findSpawn(others, state.map)
   p.x = spawn.x
   p.y = spawn.y
-  p.boost = 0
   const timers = ctx.timers.get(id)
   if (timers) timers.protectedUntil = ctx.tick + Math.ceil(1.5 * TICK_RATE)
   ctx.histories.set(id, [{ x: p.x, y: p.y }])
@@ -717,7 +733,7 @@ function endRealmsOf(ctx: SimContext, state: ArenaState, id: string): void {
     }
     if (target) {
       target.realm = 0
-      target.root = 0
+      target.disarm = 0
     }
     ctx.ghostTarget.delete(booId)
   }
@@ -750,7 +766,7 @@ function updateRockets(ctx: SimContext, state: ArenaState): void {
     if (!isFlying(cls, p.ultTicks)) continue
     for (const [oid, o] of state.players) {
       if (oid === id || !o.alive || o.realm !== p.realm) continue
-      if (isFlying(classOf(o.skin), o.ultTicks)) continue
+      if (untouchable(o)) continue
       if (Math.hypot(o.x - p.x, o.y - p.y) <= cls.ult.width + PLAYER_RADIUS) {
         explodeRocket(ctx, state, id)
         break
@@ -773,7 +789,7 @@ function castBeam(
   const r = PLAYER_RADIUS + def.width / 2
   for (const [oid, o] of state.players) {
     if (oid === id || !o.alive || o.realm !== caster.realm || isProtected(ctx, oid)) continue
-    if (isFlying(classOf(o.skin), o.ultTicks)) continue
+    if (untouchable(o)) continue
     if (segmentHitsCircle(caster.x, caster.y, ex, ey, o.x, o.y, r)) {
       damage(ctx, state, oid, id, ONE_SHOT, 0, false)
     }
@@ -795,7 +811,7 @@ function handleUlts(ctx: SimContext, state: ArenaState): void {
       let bestScore = Infinity
       for (const [otherId, other] of state.players) {
         if (otherId === id || !other.alive || other.realm !== 0) continue
-        if (isFlying(classOf(other.skin), other.ultTicks)) continue
+        if (untouchable(other)) continue
         const score = ultTargetScore(caster.x, caster.y, req.ua, def.range, other.x, other.y)
         if (score < bestScore) {
           bestScore = score
@@ -812,7 +828,7 @@ function handleUlts(ctx: SimContext, state: ArenaState): void {
         ctx.nextRealm = ctx.nextRealm >= 255 ? 1 : ctx.nextRealm + 1
         caster.realm = realm
         best.realm = realm
-        best.root = def.durationTicks
+        best.disarm = def.durationTicks
         caster.ultTicks = def.durationTicks
         ctx.ghostTarget.set(id, bestId)
       }
@@ -831,7 +847,7 @@ function handleUlts(ctx: SimContext, state: ArenaState): void {
     } else if (def.kind === 'rocket') {
       caster.ultAim = req.ua
       caster.stun = 0
-      caster.root = 0
+      caster.disarm = 0
       caster.boost = 0
       caster.ultTicks = def.durationTicks
     } else {

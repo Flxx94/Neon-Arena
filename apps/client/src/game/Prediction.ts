@@ -1,4 +1,4 @@
-import { PLAYER_SPEED, mapOf, stepPlayer, type MapDef } from '@neon-arena/shared'
+import { PLAYER_SPEED, mapOf, stepPlayer, stepRocket, type MapDef } from '@neon-arena/shared'
 
 export interface PendingInput {
   seq: number
@@ -30,6 +30,9 @@ export class Prediction {
   boostLeft = 0
   /** Lauftempo der Charakter-Klasse (px/s), von main.ts aus dem eigenen Skin gesetzt. */
   speed: number = PLAYER_SPEED
+  /** Raketenflug (Blobby-Ult): Kurs + Modus, gleiche Schrittfunktion wie der Server. */
+  rocket = false
+  heading = 0
   /** Aktive Karte (Hindernisse/Boost-Felder fuer die Schrittfunktion); Wechsel -> `reset`. */
   map: MapDef = mapOf(0)
   /** Abklingender visueller Korrektur-Versatz. */
@@ -43,16 +46,32 @@ export class Prediction {
     this.offset = { x: 0, y: 0 }
     this.boostLeft = 0
     this.pending = []
+    this.rocket = false
   }
 
   /** Lokal anwenden + fuer Replay merken. */
   applyLocal(input: PendingInput): void {
     this.pending.push(input)
     this.prev = { ...this.predicted }
-    this.boostLeft = stepPlayer(this.predicted, this.boostLeft, input.dx, input.dy, this.speed, this.map.obstacles, this.map.boostPads)
+    this.step(input.dx, input.dy)
   }
 
   /** Server-Snapshot uebernehmen, bestaetigte Inputs verwerfen, Rest replayen. */
+  /** Rakete: Kurs-/Modus-Umschaltung vom Server (vor reconcile aufrufen). */
+  setRocket(on: boolean, heading: number): void {
+    this.rocket = on
+    this.heading = heading
+  }
+
+  private step(dx: number, dy: number): void {
+    if (this.rocket) {
+      this.heading = stepRocket(this.predicted, this.heading, dx, dy, this.speed)
+      this.boostLeft = 0
+    } else {
+      this.boostLeft = stepPlayer(this.predicted, this.boostLeft, dx, dy, this.speed, this.map.obstacles, this.map.boostPads)
+    }
+  }
+
   reconcile(x: number, y: number, ackSeq: number, boost: number): void {
     const oldX = this.predicted.x
     const oldY = this.predicted.y
@@ -63,7 +82,7 @@ export class Prediction {
     this.prev = { x, y }
     for (const p of this.pending) {
       this.prev = { ...this.predicted }
-      this.boostLeft = stepPlayer(this.predicted, this.boostLeft, p.dx, p.dy, this.speed, this.map.obstacles, this.map.boostPads)
+      this.step(p.dx, p.dy)
     }
     // Visuelle Kontinuitaet: bisher gezeigte Position minus neue = Versatz, der danach abklingt.
     const ex = oldX - this.predicted.x + this.offset.x

@@ -26,11 +26,13 @@ export class Player extends Schema {
   /** Betaeubung: Ticks ohne Bewegung und ohne Schuss (Kitty-Ult). */
   @type('uint8') stun = 0
   /** Festgewurzelt: Ticks ohne Bewegung, Schiessen erlaubt (Boo-Geisterwelt). */
-  @type('uint8') root = 0
+  @type('uint8') disarm = 0
   /** Welt-Instanz: 0 = Arena, sonst Geisterwelt-Duell (nur Spieler mit gleicher Zahl sehen/treffen sich). */
   @type('uint8') realm = 0
   /** Verlangsamt (Zappy-Feld): Ticks, die der Effekt noch haelt. */
   @type('uint8') slow = 0
+  /** Ticks, in denen der Spieler nach einer Raketen-Explosion unsichtbar/unverwundbar auf den Respawn wartet. */
+  @type('uint8') hidden = 0
   /** Ult-Richtung (rad; Rakete: Flugrichtung) und Ult-Punkt (Strahl-Ursprung, Wuerfel-Ziel) fuer die Darstellung. */
   @type('float32') ultAim = 0
   @type('float32') ultX = 0
