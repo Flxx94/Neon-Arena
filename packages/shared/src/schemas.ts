@@ -52,6 +52,9 @@ export const inputSchema = z
     fire: z.boolean(),
     /** Ult ausloesen (idempotent: der Server verlangt volle Leiste). */
     ult: z.boolean().optional(),
+    /** Ult-Zielrichtung (rad) und -Entfernung (0..1 der Reichweite) aus dem Pre-Aim des Ult-Joysticks. */
+    ua: z.number().min(-Math.PI).max(Math.PI).optional(),
+    ud: z.number().min(0).max(1).optional(),
   })
   .strip()
 

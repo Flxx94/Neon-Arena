@@ -10,6 +10,8 @@ export interface InputMessage {
   aim: number
   fire: boolean
   ult?: boolean
+  ua?: number
+  ud?: number
 }
 
 /** Server -> Client: Delta-Snapshot, 20 Hz. */

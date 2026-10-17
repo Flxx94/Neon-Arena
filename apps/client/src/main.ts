@@ -16,14 +16,15 @@ import {
   skinColor,
   skinModel,
   ULT_MAX,
-  effectiveCooldown,
   effectiveSpeed,
+  isFlying,
   ultTargetScore,
 } from '@neon-arena/shared'
 import { SoundFX } from './game/Audio.js'
 import { CanvasRenderer, frameTime } from './game/CanvasRenderer.js'
 import { Input } from './game/Input.js'
 import { TouchControls } from './game/TouchControls.js'
+import { UltControl, type UltRelease } from './game/UltControl.js'
 import { Interpolator } from './game/Interpolation.js'
 import { PALETTES, SKIN_COLORS, skinTone } from './game/palette.js'
 import { Prediction } from './game/Prediction.js'
@@ -734,6 +735,11 @@ renderer.hooks = {
     const sp = sfx.spatial(x - prediction.predicted.x, y - prediction.predicted.y)
     if (sp.gain > 0.15) sfx.shoot(sp, false, kind)
   },
+  onUltFx: (kind, own, x, y) => {
+    const sp = sfx.spatial(x - prediction.predicted.x, y - prediction.predicted.y)
+    if (kind.endsWith('-boom')) sfx.explosion(sp)
+    else if (!own && sp.gain > 0.15) sfx.ult()
+  },
   onImpact: (x, y) => {
     const now = performance.now()
     if (now - lastImpactSfx < 45) return
@@ -813,8 +819,10 @@ playBtn.addEventListener('click', () => {
         }
         const own = players.find((p) => p.id === net.sessionId)
         if (own) {
-          prediction.speed = effectiveSpeed(classOf(own.skin), own.ultTicks)
-          prediction.reconcile(own.x, own.y, own.ackSeq, own.boost)
+          prediction.speed = effectiveSpeed(classOf(own.skin), own.ultTicks, own.slow)
+          // Rakete: Flug ist rein serverseitig (ueber Hindernisse), keine Vorhersage.
+          if (isFlying(classOf(own.skin), own.ultTicks)) prediction.reset(own.x, own.y)
+          else prediction.reconcile(own.x, own.y, own.ackSeq, own.boost)
         }
       },
       onKill: (by, victim) => pushKill(by, victim),
@@ -926,15 +934,36 @@ function currentAim(): number {
 const TICK_MS = 1000 / TICK_RATE
 let tickAcc = 0
 let lastShootSfx = 0
-/** Ult-Wunsch (Q / Button): wird ~350 ms lang mitgesendet, bis der Server die Ult gestartet hat (idempotent). */
-let ultWantUntil = 0
+/** Ult-Wunsch (Joystick/Q): wird ~350 ms lang mitgesendet, bis der Server die Ult gestartet hat (idempotent). */
+let ultReq: (UltRelease & { until: number }) | null = null
 let lastUlt = 0
-function wantUlt(): void {
-  ultWantUntil = performance.now() + 350
+function ownPlayer(): ClientPlayer | undefined {
+  return players.find((p) => p.id === net.sessionId)
 }
-ultBtn.addEventListener('pointerdown', (e) => {
-  e.preventDefault()
-  wantUlt()
+/** Skalierung Welt -> Bildschirm (px je Welt-px) fuer das Q-Zielen. */
+function worldScale(): number {
+  const a = renderer.worldToScreen(0, 0)
+  const b = renderer.worldToScreen(100, 0)
+  return (b.x - a.x) / 100
+}
+const ultCtl = new UltControl($<HTMLElement>('ult'), $<HTMLElement>('ult-knob'), {
+  ready: () => {
+    const o = ownPlayer()
+    return !!o && o.alive && o.ult >= ULT_MAX && o.ultTicks === 0 && o.stun === 0
+  },
+  defaultAim: () => currentAim(),
+  mouseAim: () => {
+    const o = ownPlayer()
+    const pos = prediction.predicted
+    const s = renderer.worldToScreen(pos.x, pos.y)
+    const dx = input.mouseX - s.x
+    const dy = input.mouseY - s.y
+    const range = (o ? classOf(o.skin).ult.range : 0) || 600
+    return {
+      angle: Math.atan2(dy, dx),
+      dist: Math.min(1, Math.hypot(dx, dy) / worldScale() / Math.min(range, 900)),
+    }
+  },
 })
 function inputTick(): void {
   if (!connected) return
@@ -943,20 +972,20 @@ function inputTick(): void {
   const own = players.find((p) => p.id === net.sessionId)
   const stunned = !!own && own.stun > 0
   const firing = (input.firing || touch.firing) && settingsClosed() && !stunned
-  if (input.takeUlt()) wantUlt()
+  const rel = ultCtl.take()
+  if (rel) ultReq = { ...rel, until: performance.now() + 350 }
   const ultNow =
-    performance.now() < ultWantUntil &&
+    ultReq !== null &&
+    performance.now() < ultReq.until &&
     !!own?.alive &&
     own.ult >= ULT_MAX &&
     own.ultTicks === 0 &&
     own.stun === 0
-  const seq = net.sendInput(dx, dy, aim, firing, ultNow)
+  const seq = net.sendInput(dx, dy, aim, firing, ultNow && ultReq ? { ua: ultReq.ua, ud: ultReq.ud } : null)
   if (seq >= 0) {
     const now = performance.now()
-    if (own) prediction.speed = effectiveSpeed(classOf(own.skin), own.ultTicks)
-    const cooldownMs = own
-      ? (effectiveCooldown(classOf(own.skin), own.ultTicks) / TICK_RATE) * 1000
-      : 250
+    if (own) prediction.speed = effectiveSpeed(classOf(own.skin), own.ultTicks, own.slow)
+    const cooldownMs = own ? (classOf(own.skin).cooldownTicks / TICK_RATE) * 1000 : 250
     if (firing && own?.alive && now - lastShootSfx > cooldownMs) {
       lastShootSfx = now
       activity = Math.min(1, activity + 0.04)
@@ -965,7 +994,8 @@ function inputTick(): void {
     const boostBefore = prediction.boostLeft
     // Betaeubt/festgewurzelt: der Server bewegt nicht, also sagt die Prediction auch keine Bewegung voraus.
     const held = !!own && (own.stun > 0 || own.root > 0)
-    prediction.applyLocal({ seq, dx: held ? 0 : dx, dy: held ? 0 : dy })
+    const flying = !!own && isFlying(classOf(own.skin), own.ultTicks)
+    if (!flying) prediction.applyLocal({ seq, dx: held ? 0 : dx, dy: held ? 0 : dy })
     if (boostBefore <= 0 && prediction.boostLeft > 0 && own?.alive) {
       sfx.boost()
       renderer.fx.text(prediction.predicted.x, prediction.predicted.y - 34, 'BOOST!', '#ffd23f', 20)
@@ -1028,7 +1058,7 @@ function updateUlt(own: ClientPlayer | undefined): void {
   ultBtn.classList.toggle('active', own.ultTicks > 0)
   ultNameEl.textContent = c.ult.name
   ultKeyEl.textContent = touchMode ? '★' : 'Q'
-  const requested = ultWantUntil > 0
+  const requested = ultReq !== null
   if (own.ult >= ULT_MAX && lastUlt < ULT_MAX) {
     sfx.ultReady()
     showToast('ULT bereit!', '#ffd23f')
@@ -1041,7 +1071,7 @@ function updateUlt(own: ClientPlayer | undefined): void {
     renderer.fx.shake(5)
     activity = Math.min(1, activity + 0.5)
   }
-  if (own.ultTicks > 0 || own.ult < ULT_MAX) ultWantUntil = 0
+  if (own.ultTicks > 0 || own.ult < ULT_MAX) ultReq = null
   lastUlt = own.ult
 }
 
@@ -1135,11 +1165,17 @@ function frame() {
   lastOwnRender = ownPos
   const ownNow = players.find((p) => p.id === ownId)
   const ownRealm = ownNow?.realm ?? 0
+  const ownFlying = !!ownNow && isFlying(classOf(ownNow.skin), ownNow.ultTicks)
+  ultCtl.update()
   const rendered = players
     .filter((p) => p.id === ownId || p.realm === ownRealm) // Geisterwelt: nur Mitspieler derselben Welt sichtbar
     .map((p) => {
-    if (p.id === ownId)
+    if (p.id === ownId && !ownFlying)
       return { ...p, x: ownPos.x, y: ownPos.y, aim: liveAim, boost: prediction.boostLeft }
+    if (p.id === ownId) {
+      const ip = interp.sample(p.id, now)
+      return { ...p, x: ip?.x ?? p.x, y: ip?.y ?? p.y, aim: liveAim }
+    }
     const interpPos = interp.sample(p.id, now)
     return interpPos ? { ...p, x: interpPos.x, y: interpPos.y } : p
   })
@@ -1147,12 +1183,14 @@ function frame() {
   // Ziel-Markierung fuer Ults mit Zielauswahl (gleiche Bewertung wie der Server).
   let ultTargetId: string | null = null
   if (ownNow?.alive && ownNow.ult >= ULT_MAX && ownNow.ultTicks === 0) {
-    const range = classOf(ownNow.skin).ult.range
+    const udef = classOf(ownNow.skin).ult
+    const range = udef.aim === 'target' ? udef.range : 0
+    const tAim = ultCtl.aiming ? ultCtl.angle : liveAim
     if (range > 0) {
       let best = Infinity
       for (const p of rendered) {
         if (p.id === ownId || !p.alive || p.realm !== 0) continue
-        const sc = ultTargetScore(ownPos.x, ownPos.y, liveAim, range, p.x, p.y)
+        const sc = ultTargetScore(ownPos.x, ownPos.y, tAim, range, p.x, p.y)
         if (sc < best) {
           best = sc
           ultTargetId = p.id
@@ -1169,6 +1207,7 @@ function frame() {
     crosshair: settingsClosed() && !touchMode,
     ghost: ownRealm !== 0,
     ultTargetId,
+    ultPreview: ultCtl.aiming ? { angle: ultCtl.angle, dist: ultCtl.dist } : null,
   })
   renderScoreboard()
 

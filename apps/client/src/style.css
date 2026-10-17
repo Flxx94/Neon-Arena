@@ -1135,6 +1135,23 @@ kbd {
   user-select: none;
   opacity: 0.88;
 }
+#ult #ult-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: var(--role);
+  border: 2px solid var(--ink);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms;
+}
+#ult.ready #ult-knob {
+  opacity: 0.75;
+}
 #ult[hidden] {
   display: none;
 }

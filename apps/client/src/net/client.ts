@@ -32,6 +32,11 @@ export interface ClientPlayer {
   stun: number
   root: number
   realm: number
+  slow: number
+  /** Ult-Richtung (Rakete: Flugrichtung) und Ult-Punkt (Strahl-Ursprung, Wuerfel-Ziel). */
+  ultAim: number
+  ultX: number
+  ultY: number
 }
 
 export interface ClientProjectile {
@@ -39,8 +44,6 @@ export interface ClientProjectile {
   x: number
   y: number
   owner: string
-  /** Ult-Schuss (Todesnadel). */
-  big: boolean
   /** Charakter-Klasse des Schuetzen (Modellindex): bestimmt Optik/Sound. */
   kind: number
 }
@@ -108,6 +111,10 @@ export class NetClient {
             stun?: number
             root?: number
             realm?: number
+            slow?: number
+            ultAim?: number
+            ultX?: number
+            ultY?: number
           },
         ]) => ({
           id,
@@ -130,6 +137,10 @@ export class NetClient {
           stun: p.stun ?? 0,
           root: p.root ?? 0,
           realm: p.realm ?? 0,
+          slow: p.slow ?? 0,
+          ultAim: p.ultAim ?? 0,
+          ultX: p.ultX ?? 0,
+          ultY: p.ultY ?? 0,
         }),
       )
       const projectiles: ClientProjectile[] = [...state.projectiles.values()].map(
@@ -139,14 +150,12 @@ export class NetClient {
           y: number
           kind?: number
           owner?: string
-          big?: boolean
         }) => ({
           id: p.id,
           x: p.x,
           y: p.y,
           kind: p.kind ?? 0,
           owner: p.owner ?? '',
-          big: p.big ?? false,
         }),
       )
       const pickups: ClientPickup[] = [...state.pickups.values()].map(
@@ -175,10 +184,21 @@ export class NetClient {
   }
 
   /** Wird vom Game-Loop mit 30 Hz aufgerufen; seq steigt pro Input. Gibt seq zurueck. */
-  sendInput(dx: number, dy: number, aim: number, fire: boolean, ult = false): number {
+  sendInput(
+    dx: number,
+    dy: number,
+    aim: number,
+    fire: boolean,
+    ult: { ua: number; ud: number } | null = null,
+  ): number {
     if (!this.room) return -1
     const seq = this.seq++
-    this.room.send('input', ult ? { kind: 'input', seq, dx, dy, aim, fire, ult } : { kind: 'input', seq, dx, dy, aim, fire })
+    this.room.send(
+      'input',
+      ult
+        ? { kind: 'input', seq, dx, dy, aim, fire, ult: true, ua: ult.ua, ud: ult.ud }
+        : { kind: 'input', seq, dx, dy, aim, fire },
+    )
     return seq
   }
 

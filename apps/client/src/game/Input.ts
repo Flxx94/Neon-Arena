@@ -4,8 +4,6 @@ export class Input {
   mouseX = 0
   mouseY = 0
   firing = false
-  /** true, sobald Q gedrueckt wurde (wird mit `takeUlt()` abgeholt). */
-  private ultPressed = false
   /** Zeitpunkt der letzten Beruehrung: emulierte Maus-Events nach einem Tap ignorieren. */
   private lastTouchAt = -10_000
 
@@ -15,7 +13,6 @@ export class Input {
       // Tippen in Formularfeldern (Login, Name) darf keine Bewegung ausloesen.
       if ((e.target as Element | null)?.closest?.('input, textarea')) return
       this.keys.add(e.code)
-      if (e.code === 'KeyQ' && !e.repeat) this.ultPressed = true
     })
     addEventListener('keyup', (e) => this.keys.delete(e.code))
     addEventListener('mousemove', (e) => {
@@ -47,13 +44,6 @@ export class Input {
     const dy = (this.keys.has('KeyS') ? 1 : 0) - (this.keys.has('KeyW') ? 1 : 0)
     if (dx !== 0 && dy !== 0) return { dx: dx / Math.SQRT2, dy: dy / Math.SQRT2 }
     return { dx, dy }
-  }
-
-  /** Ult-Taste seit dem letzten Aufruf gedrueckt? */
-  takeUlt(): boolean {
-    const v = this.ultPressed
-    this.ultPressed = false
-    return v
   }
 
   /** Test-Helfer: Tasten simulieren. */

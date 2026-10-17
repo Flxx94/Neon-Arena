@@ -6,8 +6,10 @@ import {
   ULT_MAX,
   ULT_PASSIVE_TICKS,
   ULT_PER_DAMAGE_DEALT,
-  effectiveCooldown,
+  ONE_SHOT,
+  SLOW_MULT,
   effectiveSpeed,
+  isFlying,
   ultTargetScore,
   ROLE_LABELS,
   TICK_RATE,
@@ -94,14 +96,31 @@ describe('Charakter-Klassen (ADR-006)', () => {
       }
     })
 
-    it('Effekte: Tempo/Abklingzeit nur waehrend die Ult laeuft', () => {
-      const zappy = CLASSES[2]!
-      expect(effectiveSpeed(zappy, 0)).toBe(zappy.speed)
-      expect(effectiveSpeed(zappy, 5)).toBeCloseTo(zappy.speed * zappy.ult.speedMult)
+    it('Effekte: Tempo nur waehrend Geisterwelt/Rakete, Verlangsamung im Feld, Rakete fliegt', () => {
+      const boo = CLASSES[4]!
       const blobby = CLASSES[0]!
-      expect(effectiveCooldown(blobby, 0)).toBe(blobby.cooldownTicks)
-      expect(effectiveCooldown(blobby, 5)).toBeLessThan(blobby.cooldownTicks)
-      expect(effectiveCooldown(blobby, 5)).toBeGreaterThanOrEqual(3)
+      expect(effectiveSpeed(boo, 0)).toBe(boo.speed)
+      expect(effectiveSpeed(boo, 5)).toBeCloseTo(boo.speed * boo.ult.speedMult)
+      expect(effectiveSpeed(blobby, 5)).toBeCloseTo(blobby.speed * blobby.ult.speedMult)
+      expect(effectiveSpeed(boo, 0, 3)).toBeCloseTo(boo.speed * SLOW_MULT)
+      expect(isFlying(blobby, 5)).toBe(true)
+      expect(isFlying(blobby, 0)).toBe(false)
+      expect(isFlying(boo, 5)).toBe(false)
+    })
+
+    it('Ult-Parameter passen zur Art (Reichweiten, One-Shot, Schockwelle)', () => {
+      const by = (k: string) => CLASSES.find((c) => c.ult.kind === k)!.ult
+      expect(by('beam').range).toBeGreaterThan(Math.hypot(2800, 1600)) // ganze Map
+      expect(by('beam').width).toBeGreaterThan(60)
+      expect(by('slam').shockRadius).toBeGreaterThan(by('slam').radius)
+      expect(by('slam').knockback).toBeGreaterThan(0)
+      expect(by('field').tickDamage).toBeGreaterThan(0)
+      expect(by('rocket').salvo).toBeGreaterThanOrEqual(8)
+      expect(ONE_SHOT).toBeGreaterThan(Math.max(...CLASSES.map((c) => c.hp + 50)))
+      for (const c of CLASSES) {
+        const needsPoint = c.ult.aim === 'target' || c.ult.aim === 'point'
+        if (needsPoint) expect(c.ult.range).toBeGreaterThan(0)
+      }
     })
 
     it('Aufladung: ohne Kills dauert eine volle Ult mehrere Treffer, Passiv allein sehr lange', () => {
