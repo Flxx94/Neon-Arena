@@ -115,6 +115,13 @@
     Gameplay-Farben (HP, Projektile, UI) bleiben gleich.
 - Serverlast: unveraendert (Hindernislisten sind aehnlich gross, kein neuer Tick-Pfad).
 
+## ADR-011: PROTOCOL_V = 2 (Kartenwechsel / Bugfix "durch Hindernisse")
+- Status: akzeptiert (2026-10-17)
+- Problem: In der ersten Runde nach dem Deployment liefen Spieler/Projektile scheinbar durch Hindernisse. Ursache (wahrscheinlich): Browser-Tabs mit der alten Client-Version
+  (nur Karte 0) waren mit dem neuen Server verbunden, der eine andere Karte spielte -> Client und Server nutzten verschiedene Hindernisse. Der Version-Gate griff nicht,
+  weil `PROTOCOL_V` unveraendert 1 war.
+- Entscheidung: `PROTOCOL_V` auf 2; Regel: bei jeder Aenderung an Sim-, State- oder Kartenlogik erhoehen. Alte Clients werden beim Join abgewiesen und sehen "Neue Version verfuegbar – bitte neu laden".
+
 ## ADR-012: Admin-Panel
 - Status: akzeptiert (2026-10-17)
 - Entscheidung:

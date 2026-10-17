@@ -11,7 +11,7 @@ describe('shared schemas (M1-01 Vorgriff)', () => {
 
   it('lehnt Script-Nickname ab', () => {
     expect(() =>
-      joinSchema.parse({ nickname: '<script>alert(1)</script>', protocolV: 1 }),
+      joinSchema.parse({ nickname: '<script>alert(1)</script>', protocolV: PROTOCOL_V }),
     ).toThrow()
   })
 
@@ -20,13 +20,13 @@ describe('shared schemas (M1-01 Vorgriff)', () => {
   })
 
   it('akzeptiert Skin im gueltigen Bereich, lehnt ausserhalb ab', () => {
-    expect(joinSchema.parse({ nickname: 'Neo_1', protocolV: 1, skin: 0 }).skin).toBe(0)
-    expect(joinSchema.parse({ nickname: 'Neo_1', protocolV: 1, skin: SKIN_COUNT - 1 }).skin).toBe(
+    expect(joinSchema.parse({ nickname: 'Neo_1', protocolV: PROTOCOL_V, skin: 0 }).skin).toBe(0)
+    expect(joinSchema.parse({ nickname: 'Neo_1', protocolV: PROTOCOL_V, skin: SKIN_COUNT - 1 }).skin).toBe(
       SKIN_COUNT - 1,
     )
-    expect(joinSchema.parse({ nickname: 'Neo_1', protocolV: 1 }).skin).toBeUndefined()
+    expect(joinSchema.parse({ nickname: 'Neo_1', protocolV: PROTOCOL_V }).skin).toBeUndefined()
     for (const skin of [-1, SKIN_COUNT, 1.5, Number.NaN]) {
-      expect(() => joinSchema.parse({ nickname: 'Neo_1', protocolV: 1, skin })).toThrow()
+      expect(() => joinSchema.parse({ nickname: 'Neo_1', protocolV: PROTOCOL_V, skin })).toThrow()
     }
   })
 
