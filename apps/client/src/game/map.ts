@@ -1,13 +1,21 @@
 import {
   ARENA_HEIGHT,
   ARENA_WIDTH,
-  BOOST_PADS,
   BOOST_PAD_RADIUS,
-  MAP_NAME,
-  OBSTACLES,
+  type BoostPad,
+  type MapDef,
   type ObstacleRect,
 } from '@neon-arena/shared'
 import { FONT, type Palette, type WallKind } from './palette.js'
+import {
+  drawThemeAmbient,
+  drawThemeBand,
+  drawThemeDecals,
+  drawThemeFloor,
+  drawThemeWallOverlay,
+  drawThemeWallPattern,
+  type ThemedMap,
+} from './mapThemes.js'
 
 /**
  * Karte "Prism Plaza" — rein visuell. Kollision kommt aus shared/OBSTACLES (Server autoritativ);
@@ -101,7 +109,7 @@ function drawFloor(ctx: CanvasRenderingContext2D, pal: Palette): void {
   ctx.stroke()
 }
 
-function drawDecals(ctx: CanvasRenderingContext2D, pal: Palette): void {
+function drawDecals(ctx: CanvasRenderingContext2D, pal: Palette, mapName: string): void {
   const cx = ARENA_WIDTH / 2
   const cy = ARENA_HEIGHT / 2
   ctx.lineCap = 'round'
@@ -232,7 +240,7 @@ function drawDecals(ctx: CanvasRenderingContext2D, pal: Palette): void {
   ctx.font = `800 54px ${FONT}`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText(MAP_NAME.toUpperCase().split('').join(' '), cx, ARENA_HEIGHT - 62)
+  ctx.fillText(mapName.toUpperCase().split('').join(' '), cx, ARENA_HEIGHT - 62)
   ctx.restore()
 }
 
@@ -249,9 +257,9 @@ function boltPath(ctx: CanvasRenderingContext2D, s: number): void {
 }
 
 /** Boost-Felder: statischer Teil (Sockel, Ring, Blitz). Pulsierendes Leuchten kommt in drawAmbient. */
-function drawBoostPads(ctx: CanvasRenderingContext2D, pal: Palette): void {
+function drawBoostPads(ctx: CanvasRenderingContext2D, pal: Palette, pads: readonly BoostPad[]): void {
   const r = BOOST_PAD_RADIUS
-  for (const pad of BOOST_PADS) {
+  for (const pad of pads) {
     ctx.save()
     ctx.translate(pad.x, pad.y)
     ctx.beginPath()
@@ -307,7 +315,12 @@ function drawBand(ctx: CanvasRenderingContext2D, pal: Palette): void {
   ctx.stroke()
 }
 
-function drawWall(ctx: CanvasRenderingContext2D, pal: Palette, o: ObstacleRect): void {
+function drawWall(
+  ctx: CanvasRenderingContext2D,
+  pal: Palette,
+  o: ObstacleRect,
+  theme: MapDef['theme'],
+): void {
   const kind = wallKind(o)
   const c = pal.walls[kind]
   const rad = Math.min(10, o.w / 3, o.h / 3)
@@ -348,6 +361,8 @@ function drawWall(ctx: CanvasRenderingContext2D, pal: Palette, o: ObstacleRect):
   ctx.clip()
   ctx.strokeStyle = c.hi
   ctx.fillStyle = c.hi
+  if (theme !== 'neon') drawThemeWallPattern(ctx, pal, theme, kind, o, c)
+  else
   switch (kind) {
     case 'bunker': {
       ctx.globalAlpha = 0.45
@@ -430,8 +445,9 @@ function drawWall(ctx: CanvasRenderingContext2D, pal: Palette, o: ObstacleRect):
   ctx.beginPath()
   rr(ctx, o.x, o.y, o.w, o.h, rad)
   ctx.stroke()
+  if (theme !== 'neon') drawThemeWallOverlay(ctx, pal, theme, o, c)
   // Nieten an den Ecken (grosse Bloecke)
-  if (o.w >= 56 && o.h >= 56) {
+  if (theme === 'neon' && o.w >= 56 && o.h >= 56) {
     ctx.fillStyle = pal.ink
     for (const [bx, by] of [
       [o.x + 9, o.y + 9],
@@ -464,7 +480,7 @@ export const WORLD_PAD = 48
  * Rendert die komplette Arena (Boden, Rand, Waende) einmal pro (Theme, Aufloesung) in einen
  * Offscreen-Canvas. `ls` = Pixel pro Welteinheit; die Kamera zeichnet ihn skaliert/verschoben.
  */
-export function buildWorldLayer(pal: Palette, ls: number): HTMLCanvasElement {
+export function buildWorldLayer(pal: Palette, ls: number, map: MapDef): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round((ARENA_WIDTH + WORLD_PAD * 2) * ls))
   canvas.height = Math.max(1, Math.round((ARENA_HEIGHT + WORLD_PAD * 2) * ls))
@@ -485,20 +501,31 @@ export function buildWorldLayer(pal: Palette, ls: number): HTMLCanvasElement {
   ctx.beginPath()
   rr(ctx, 0, 0, ARENA_WIDTH, ARENA_HEIGHT, 22)
   ctx.clip()
-  drawFloor(ctx, pal)
-  drawDecals(ctx, pal)
-  drawBoostPads(ctx, pal)
-  drawBand(ctx, pal)
+  if (map.theme === 'neon') {
+    drawFloor(ctx, pal)
+    drawDecals(ctx, pal, map.name)
+  } else {
+    drawThemeFloor(ctx, pal, map.theme)
+    drawThemeDecals(ctx, pal, map.theme, map.name)
+  }
+  drawBoostPads(ctx, pal, map.boostPads)
+  if (map.theme === 'neon') drawBand(ctx, pal)
+  else drawThemeBand(ctx, pal, map.theme)
   ctx.restore()
 
   // Waende nach Hoehe sortieren: weiter unten = spaeter (korrekte Ueberlappung der Skirts)
-  const walls = [...OBSTACLES].sort((a, b) => a.y + a.h - (b.y + b.h))
-  for (const o of walls) drawWall(ctx, pal, o)
+  const walls = [...map.obstacles].sort((a, b) => a.y + a.h - (b.y + b.h))
+  for (const o of walls) drawWall(ctx, pal, o, map.theme)
   return canvas
 }
 
 /** Animierter Dekor-Anteil (leicht, pro Frame): Mittel-Puls und Eck-Leuchten. */
-export function drawAmbient(ctx: CanvasRenderingContext2D, pal: Palette, t: number): void {
+export function drawAmbient(
+  ctx: CanvasRenderingContext2D,
+  pal: Palette,
+  t: number,
+  map: MapDef,
+): void {
   const cx = ARENA_WIDTH / 2
   const cy = ARENA_HEIGHT / 2
   const k = (t % 3.2) / 3.2
@@ -511,7 +538,7 @@ export function drawAmbient(ctx: CanvasRenderingContext2D, pal: Palette, t: numb
   ctx.globalAlpha = 1
   // Boost-Felder: auslaufende Pulsringe (gegeneinander versetzt)
   ctx.strokeStyle = pal.bullet
-  BOOST_PADS.forEach((pad, i) => {
+  map.boostPads.forEach((pad, i) => {
     const kk = ((t + i * 0.37) % 1.4) / 1.4
     ctx.globalAlpha = (1 - kk) * 0.7
     ctx.lineWidth = 4 * (1 - kk) + 1
@@ -520,6 +547,7 @@ export function drawAmbient(ctx: CanvasRenderingContext2D, pal: Palette, t: numb
     ctx.stroke()
   })
   ctx.globalAlpha = 1
+  if (map.theme !== 'neon') drawThemeAmbient(ctx, pal, map.theme as ThemedMap, t)
   // Eck-Beacons (ausserhalb des Rands, auf dem Sockel)
   const colors = [
     pal.walls.bunker.top,

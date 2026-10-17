@@ -19,6 +19,8 @@ import {
   effectiveSpeed,
   isFlying,
   ultTargetScore,
+  MAP_COUNT,
+  mapOf,
 } from '@neon-arena/shared'
 import { SoundFX } from './game/Audio.js'
 import { CanvasRenderer, frameTime } from './game/CanvasRenderer.js'
@@ -102,6 +104,8 @@ const debug = new URLSearchParams(location.search).has('debug')
 debugEl.hidden = !debug
 
 const renderer = new CanvasRenderer(canvas)
+// Menue-Hintergrund zeigt eine zufaellige Karte; im Spiel bestimmt der Server die Karte.
+renderer.setMap(Math.floor(Math.random() * MAP_COUNT))
 const input = new Input()
 const touch = new TouchControls(
   $<HTMLDivElement>('stick-zone'),
@@ -118,6 +122,8 @@ let players: ClientPlayer[] = []
 let projectiles: ClientProjectile[] = []
 let pickups: ClientPickup[] = []
 let phase = 'play'
+let mapId = 0
+let mapAnnounced = false
 let winner = ''
 let timeLeft = 180
 let connected = false
@@ -810,6 +816,13 @@ playBtn.addEventListener('click', () => {
         const prevPhase = phase
         phase = snapshot.phase
         winner = snapshot.winner
+        if (snapshot.map !== mapId) {
+          mapId = snapshot.map
+          prediction.map = mapOf(mapId)
+          prediction.reset(prediction.serverPos.x, prediction.serverPos.y)
+          if (mapAnnounced) showToast(`Karte: ${mapOf(mapId).name}`, '#26d0ff')
+        }
+        mapAnnounced = true
         timeLeft = snapshot.timeLeft
         interp.push(snapshot.at, players)
         if (phase !== prevPhase) onPhaseChange(prevPhase, phase)
@@ -1208,6 +1221,7 @@ function frame() {
     ghost: ownRealm !== 0,
     ultTargetId,
     ultPreview: ultCtl.aiming ? { angle: ultCtl.angle, dist: ultCtl.dist } : null,
+    map: mapId,
   })
   renderScoreboard()
 

@@ -1,3 +1,4 @@
+import type { MapTheme } from '@neon-arena/shared'
 import type { Theme } from '../ui/theme.js'
 
 /** Runder, fetter System-Font-Stack (keine externen Webfonts: DSGVO/LAN-tauglich), auch fuer CSS (--font). */
@@ -118,6 +119,81 @@ const light: Palette = {
 }
 
 export const PALETTES: Record<Theme, Palette> = { dark, light }
+
+type Walls = Palette['walls']
+function w(
+  wall: [string, string, string],
+  bunker: [string, string, string],
+  pillar: [string, string, string],
+  barricade: [string, string, string],
+  crate: [string, string, string],
+): Walls {
+  const c = ([top, side, hi]: [string, string, string]): WallColors => ({ top, side, hi })
+  return { wall: c(wall), bunker: c(bunker), pillar: c(pillar), barricade: c(barricade), crate: c(crate) }
+}
+
+/**
+ * Karten-Stile: ueberschreiben nur Boden-/Wand-/Hintergrundfarben der Basis-Palette
+ * (HP-/Projektil-/UI-Farben bleiben gleich, damit das Gameplay auf jeder Karte gleich lesbar ist).
+ */
+const MAP_STYLES: Record<Exclude<MapTheme, 'neon'>, Record<Theme, Partial<Palette>>> = {
+  winter: {
+    dark: {
+      bg: '#071225', bgDot: 'rgba(170, 215, 255, 0.10)', floorA: '#27446b', floorB: '#2d4d78',
+      grid: 'rgba(180, 220, 255, 0.07)', decal: 'rgba(200, 235, 255, 0.22)', decalStrong: 'rgba(200, 235, 255, 0.5)',
+      borderBand: '#0e1d3a', stripeA: '#dff3ff', stripeB: '#0e1d3a', shadow: 'rgba(2, 8, 24, 0.55)',
+      walls: w(['#8fe3ff', '#2b7fa8', '#e6faff'], ['#cfe9ff', '#5f8fb8', '#ffffff'], ['#a9d6f0', '#4f86b0', '#ffffff'], ['#6fb7ff', '#2c5ea8', '#d6ebff'], ['#a6d4f2', '#4a7ea6', '#f0faff']),
+    },
+    light: {
+      bg: '#cfe8f8', bgDot: 'rgba(30, 70, 110, 0.08)', floorA: '#f7fcff', floorB: '#e9f3fb',
+      grid: 'rgba(60, 110, 160, 0.07)', decal: 'rgba(60, 120, 180, 0.18)', decalStrong: 'rgba(60, 120, 180, 0.38)',
+      borderBand: '#d6ebf8', stripeA: '#ffffff', stripeB: '#1b1340', shadow: 'rgba(30, 70, 120, 0.22)',
+      walls: w(['#7fd8f5', '#3a8fb8', '#e2f8ff'], ['#bfe0f7', '#6f9cc4', '#ffffff'], ['#b4dcf4', '#6a98c0', '#ffffff'], ['#6fb0f5', '#3a6cb8', '#d6ebff'], ['#9acbec', '#5a8cb0', '#eef9ff']),
+    },
+  },
+  desert: {
+    dark: {
+      bg: '#1f1006', bgDot: 'rgba(255, 200, 130, 0.08)', floorA: '#4a3220', floorB: '#533a26',
+      grid: 'rgba(255, 200, 130, 0.05)', decal: 'rgba(255, 200, 120, 0.2)', decalStrong: 'rgba(255, 200, 120, 0.42)',
+      borderBand: '#2a190d', stripeA: '#e8a34a', stripeB: '#2a190d', shadow: 'rgba(14, 6, 0, 0.55)',
+      walls: w(['#e0b070', '#8a5a2a', '#ffe3b5'], ['#d98a4a', '#8c4a1c', '#ffd0a0'], ['#f0c878', '#9c6a22', '#fff0c4'], ['#b8743c', '#6a3a18', '#f0c090'], ['#c9a064', '#7a5426', '#f5dca8']),
+    },
+    light: {
+      bg: '#f6d9a0', bgDot: 'rgba(120, 70, 10, 0.08)', floorA: '#f9e3b4', floorB: '#f3d79c',
+      grid: 'rgba(120, 70, 10, 0.05)', decal: 'rgba(140, 80, 10, 0.16)', decalStrong: 'rgba(140, 80, 10, 0.32)',
+      borderBand: '#e9c27a', stripeA: '#d8934a', stripeB: '#1b1340', shadow: 'rgba(110, 60, 0, 0.25)',
+      walls: w(['#e8b66e', '#a8702e', '#fff0cc'], ['#e0955a', '#a85a24', '#ffdcb8'], ['#f2cc7c', '#b8802a', '#fff6d0'], ['#c8844a', '#8a4a20', '#f6d0a4'], ['#d6ae70', '#9a6a30', '#fae6b8']),
+    },
+  },
+  jungle: {
+    dark: {
+      bg: '#04130c', bgDot: 'rgba(120, 255, 170, 0.08)', floorA: '#12351f', floorB: '#163d25',
+      grid: 'rgba(120, 255, 170, 0.05)', decal: 'rgba(140, 255, 180, 0.2)', decalStrong: 'rgba(140, 255, 180, 0.42)',
+      borderBand: '#0a2314', stripeA: '#5fd36e', stripeB: '#0a2314', shadow: 'rgba(0, 10, 4, 0.55)',
+      walls: w(['#5fbf6a', '#256a34', '#c8ffc8'], ['#9aa88a', '#566650', '#e6f0d8'], ['#3fae52', '#1c6a30', '#a8f0a8'], ['#7a9e4a', '#3a5a1c', '#d4eca0'], ['#6fa85a', '#2e6a28', '#c4f0b0']),
+    },
+    light: {
+      bg: '#bfe8b0', bgDot: 'rgba(20, 80, 30, 0.08)', floorA: '#a8dc8c', floorB: '#9fd582',
+      grid: 'rgba(20, 80, 30, 0.07)', decal: 'rgba(20, 90, 40, 0.18)', decalStrong: 'rgba(20, 90, 40, 0.36)',
+      borderBand: '#7fc468', stripeA: '#2f9a46', stripeB: '#1b1340', shadow: 'rgba(10, 60, 20, 0.25)',
+      walls: w(['#5cc26a', '#2a7a3a', '#d4ffd4'], ['#a8b898', '#667a5c', '#eef6e0'], ['#34a84a', '#1c7430', '#b4f4b4'], ['#86aa50', '#42661e', '#e0f4a8'], ['#72b25e', '#32742c', '#cff4b8']),
+    },
+  },
+}
+
+const styled = new Map<string, Palette>()
+
+/** Palette fuer (Hell/Dunkel, Karten-Theme); "neon" = unveraenderte Basis-Palette. */
+export function paletteFor(theme: Theme, mapTheme: MapTheme): Palette {
+  if (mapTheme === 'neon') return PALETTES[theme]
+  const key = `${theme}:${mapTheme}`
+  let p = styled.get(key)
+  if (!p) {
+    p = { ...PALETTES[theme], ...MAP_STYLES[mapTheme][theme] }
+    styled.set(key, p)
+  }
+  return p
+}
 
 /** Skin-Farben (Reihenfolge = COLOR_NAMES in shared/skins.ts). */
 export const SKIN_COLORS = [

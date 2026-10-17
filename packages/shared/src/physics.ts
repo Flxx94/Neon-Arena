@@ -9,6 +9,7 @@ import {
   PLAYER_RADIUS,
   PLAYER_SPEED,
   TICK_RATE,
+  type BoostPad,
   type ObstacleRect,
 } from './constants.js'
 
@@ -104,9 +105,9 @@ export function segmentHitsCircle(
 }
 
 /** Steht der Kreis auf einem Boost-Feld? */
-export function onBoostPad(p: Vec): boolean {
+export function onBoostPad(p: Vec, pads: readonly BoostPad[] = BOOST_PADS): boolean {
   const r = BOOST_PAD_RADIUS
-  for (const pad of BOOST_PADS) {
+  for (const pad of pads) {
     const dx = p.x - pad.x
     const dy = p.y - pad.y
     if (dx * dx + dy * dy <= r * r) return true
@@ -126,11 +127,13 @@ export function stepPlayer(
   dx: number,
   dy: number,
   baseSpeed: number = PLAYER_SPEED,
+  obstacles: readonly ObstacleRect[] = OBSTACLES,
+  pads: readonly BoostPad[] = BOOST_PADS,
 ): number {
   const speed = (baseSpeed / TICK_RATE) * (boost > 0 ? BOOST_SPEED_MULT : 1)
   p.x += dx * speed
   p.y += dy * speed
   resolveArena(p, PLAYER_RADIUS)
-  for (const obstacle of OBSTACLES) resolveRect(p, PLAYER_RADIUS, obstacle)
-  return onBoostPad(p) ? BOOST_TICKS : Math.max(0, boost - 1)
+  for (const obstacle of obstacles) resolveRect(p, PLAYER_RADIUS, obstacle)
+  return onBoostPad(p, pads) ? BOOST_TICKS : Math.max(0, boost - 1)
 }

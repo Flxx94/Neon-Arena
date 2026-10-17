@@ -1,4 +1,4 @@
-import { PLAYER_SPEED, stepPlayer } from '@neon-arena/shared'
+import { PLAYER_SPEED, mapOf, stepPlayer, type MapDef } from '@neon-arena/shared'
 
 export interface PendingInput {
   seq: number
@@ -30,6 +30,8 @@ export class Prediction {
   boostLeft = 0
   /** Lauftempo der Charakter-Klasse (px/s), von main.ts aus dem eigenen Skin gesetzt. */
   speed: number = PLAYER_SPEED
+  /** Aktive Karte (Hindernisse/Boost-Felder fuer die Schrittfunktion); Wechsel -> `reset`. */
+  map: MapDef = mapOf(0)
   /** Abklingender visueller Korrektur-Versatz. */
   private offset = { x: 0, y: 0 }
   private pending: PendingInput[] = []
@@ -47,7 +49,7 @@ export class Prediction {
   applyLocal(input: PendingInput): void {
     this.pending.push(input)
     this.prev = { ...this.predicted }
-    this.boostLeft = stepPlayer(this.predicted, this.boostLeft, input.dx, input.dy, this.speed)
+    this.boostLeft = stepPlayer(this.predicted, this.boostLeft, input.dx, input.dy, this.speed, this.map.obstacles, this.map.boostPads)
   }
 
   /** Server-Snapshot uebernehmen, bestaetigte Inputs verwerfen, Rest replayen. */
@@ -61,7 +63,7 @@ export class Prediction {
     this.prev = { x, y }
     for (const p of this.pending) {
       this.prev = { ...this.predicted }
-      this.boostLeft = stepPlayer(this.predicted, this.boostLeft, p.dx, p.dy, this.speed)
+      this.boostLeft = stepPlayer(this.predicted, this.boostLeft, p.dx, p.dy, this.speed, this.map.obstacles, this.map.boostPads)
     }
     // Visuelle Kontinuitaet: bisher gezeigte Position minus neue = Versatz, der danach abklingt.
     const ex = oldX - this.predicted.x + this.offset.x

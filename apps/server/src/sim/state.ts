@@ -66,4 +66,6 @@ export class ArenaState extends Schema {
   @type('string') phase: RoundPhase = 'play'
   /** Nickname des Rundensiegers ("" waehrend `play`). */
   @type('string') winner = ''
+  /** Aktive Karte (`shared/maps.ts`), wechselt pro Runde. */
+  @type('uint8') map = 0
 }

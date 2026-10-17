@@ -21,6 +21,7 @@ import {
   ULT_PER_DAMAGE_TAKEN,
   ULT_PER_KILL,
   SLOW_MULT,
+  mapOf,
 } from '@neon-arena/shared'
 import {
   applyInput,
@@ -756,6 +757,51 @@ describe('engine Input-Queue + Boost', () => {
       run(ctx, state, 2 + ROUND_END_SECONDS * TICK_RATE + 2)
       expect(ps[0]!.ult).toBeLessThan(20)
       expect(ps[1]!.stun).toBe(0)
+    })
+  })
+  describe('Karten', () => {
+    it('wechselt pro Runde die Karte, leert Pickups und spawnt ausserhalb von Hindernissen', () => {
+      const ctx = createContext(false)
+      const state = new ArenaState()
+      for (let i = 0; i < 6; i++) {
+        addPlayer(state, `p${i}`, 1400, 800)
+        initPlayer(ctx, `p${i}`, { x: 1400, y: 800 })
+      }
+      const pk = new Pickup()
+      pk.x = 100
+      pk.y = 100
+      state.pickups.push(pk)
+      const seen = new Set<number>([state.map])
+      for (let round = 0; round < 6; round++) {
+        const before = state.map
+        ctx.roundTicksLeft = 1
+        for (let i = 0; i < 2 + ROUND_END_SECONDS * TICK_RATE + 2; i++) update(ctx, state)
+        expect(state.phase).toBe('play')
+        expect(state.map).not.toBe(before)
+        seen.add(state.map)
+        const m = mapOf(state.map)
+        for (const p of state.players.values()) {
+          const hit = m.obstacles.some(
+            (o) => p.x > o.x - PLAYER_RADIUS && p.x < o.x + o.w + PLAYER_RADIUS && p.y > o.y - PLAYER_RADIUS && p.y < o.y + o.h + PLAYER_RADIUS,
+          )
+          expect(hit).toBe(false)
+        }
+      }
+      expect(seen.size).toBeGreaterThan(2)
+    })
+
+    it('Kollision nutzt die Hindernisse der aktiven Karte', () => {
+      const ctx = createContext(false)
+      const state = new ArenaState()
+      state.map = 1
+      const o = mapOf(1).obstacles[0]!
+      const p = addPlayer(state, 'a', o.x - PLAYER_RADIUS - 2, o.y + o.h / 2)
+      initPlayer(ctx, 'a', { x: p.x, y: p.y })
+      for (let i = 0; i < 20; i++) {
+        applyInput(ctx, state, 'a', input(i + 1, 1, 0, 0, false))
+        update(ctx, state)
+      }
+      expect(p.x).toBeLessThanOrEqual(o.x - PLAYER_RADIUS + 0.01)
     })
   })
 })
