@@ -1,5 +1,6 @@
 /** Netzprotokoll-Typen (M1-Skeleton-Vorgriff, erweiterbar). JSON in M0/MVP, MessagePack erst P2. */
-export const PROTOCOL_V = 1
+/** Bei jeder Aenderung an Sim-/State-/Kartenlogik erhoehen: alte Browser-Tabs werden beim Join mit "Bitte neu laden" abgewiesen. */
+export const PROTOCOL_V = 2
 
 /** Client -> Server: komprimierter Bewegungs-/Aim-Input, max 30/s. */
 export interface InputMessage {

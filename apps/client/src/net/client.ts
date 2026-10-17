@@ -1,5 +1,5 @@
 import { Client, Room } from 'colyseus.js'
-import { MAX_INPUT_PER_SECOND } from '@neon-arena/shared'
+import { MAX_INPUT_PER_SECOND, PROTOCOL_V } from '@neon-arena/shared'
 
 import { SERVER_URL, type Identity } from './auth.js'
 
@@ -81,7 +81,7 @@ export class NetClient {
   async join(identity: Identity, skin: number, events: NetEvents): Promise<void> {
     this.room = await this.client.joinOrCreate('arena', {
       nickname: identity.nickname,
-      protocolV: 1,
+      protocolV: PROTOCOL_V,
       userId: identity.userId,
       skin,
     })
