@@ -104,6 +104,10 @@ export const adminRoundSchema = z
   })
   .strip()
 
+/** IP-Bann eines Spielers (Ziel = Session-ID) bzw. Aufhebung ueber die IP aus der Bann-Liste. */
+export const adminBanSchema = z.object({ target: z.string().min(1).max(64) }).strip()
+export const adminUnbanSchema = z.object({ ip: z.string().min(2).max(64) }).strip()
+
 export type AdminPlayerInput = z.infer<typeof adminPlayerSchema>
 export type AdminRoundInput = z.infer<typeof adminRoundSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
