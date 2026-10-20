@@ -2,12 +2,13 @@ import { randomUUID } from 'crypto'
 import { serialize } from 'cookie'
 import { SignJWT, jwtVerify } from 'jose'
 import { nicknameSchema } from '@neon-arena/shared'
+import { getProfileStore } from './profiles.js'
 import { getSessionStore } from './sessions.js'
 
 export const GUEST_COOKIE = 'na_guest'
 const TTL_SECONDS = 24 * 3600
 /** Profile bleiben lange angemeldet (kein taegliches Neu-Anmelden). */
-export const PROFILE_TTL_SECONDS = 30 * 24 * 3600
+export const PROFILE_TTL_SECONDS = 180 * 24 * 3600
 
 let cachedSecret: Uint8Array | null = null
 
@@ -46,7 +47,7 @@ function cookieAttrs(maxAge: number) {
 export async function issueSession(
   identity: GuestIdentity,
   ttlSeconds: number,
-): Promise<{ identity: GuestIdentity; cookie: string }> {
+): Promise<{ identity: GuestIdentity; cookie: string; token: string }> {
   await getSessionStore().create({
     userId: identity.userId,
     nickname: identity.nickname,
@@ -60,7 +61,7 @@ export async function issueSession(
     .setIssuedAt()
     .setExpirationTime(`${ttlSeconds}s`)
     .sign(secret())
-  return { identity, cookie: serialize(GUEST_COOKIE, token, cookieAttrs(ttlSeconds)) }
+  return { identity, token, cookie: serialize(GUEST_COOKIE, token, cookieAttrs(ttlSeconds)) }
 }
 
 /** Cookie loeschen (Logout). */
@@ -69,7 +70,7 @@ export function clearSessionCookie(): string {
 }
 
 /** Fluechtige Identitaet ohne Profil (Tests/Dev-Helfer; Produktion nutzt Profile pro IP). */
-export async function issueGuest(nickname: string): Promise<{ identity: GuestIdentity; cookie: string }> {
+export async function issueGuest(nickname: string): Promise<{ identity: GuestIdentity; cookie: string; token: string }> {
   const nick = nicknameSchema.parse(nickname)
   return issueSession({ userId: randomUUID(), nickname: nick, skin: 0 }, TTL_SECONDS)
 }
@@ -81,8 +82,19 @@ export async function verifyGuest(token: string): Promise<GuestIdentity | null> 
     const userId = payload.sub
     if (!userId) return null
     const session = await getSessionStore().get(userId)
-    if (!session) return null
-    return { userId, nickname: session.nickname, skin: session.skin ?? 0 }
+    if (session) return { userId, nickname: session.nickname, skin: session.skin ?? 0 }
+    // Session weg (Server-Neustart/Free-Tier-Schlaf ohne Redis): gueltiges Token + Profil in der DB
+    // -> Session neu aufbauen, damit niemand seinen Namen neu waehlen muss.
+    const profile = await getProfileStore().findById(userId)
+    if (!profile) return null
+    await getSessionStore().create({
+      userId,
+      nickname: profile.nickname,
+      createdAt: Date.now(),
+      skin: profile.skin,
+      ttlSeconds: PROFILE_TTL_SECONDS,
+    })
+    return { userId, nickname: profile.nickname, skin: profile.skin }
   } catch {
     return null
   }

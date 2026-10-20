@@ -153,13 +153,16 @@
 - Status: akzeptiert (2026-10-20); ersetzt ADR-005 (Konten) und den Gast-Flow
 - Entscheidung:
   - Email/Passwort-Konten, Gast-Login und die Login-Seite sind entfernt (`/auth/register|login|guest`, `accounts.ts`, `password.ts`, `service.ts`).
-    Jede neue IP sieht eine Namenswahl; der Name wird als Profil (`User.nickname`, `User.ip`, `User.skin`) in der DB gespeichert (Migration `20261019120000_ip_profiles`).
-  - `GET /me`: gueltiges Cookie -> Profil; sonst (ohne `?auto=0`) das neueste Profil dieser IP -> Cookie wird neu ausgestellt (30 Tage); sonst 401 -> Namenswahl.
-    Gebannte IPs bekommen 403 `BANNED`. `POST /me {nickname}` legt ein Profil an (5/min/IP), `PATCH /me/name` benennt um (10/min), `/auth/logout` = "Nicht du?".
+    Wer noch kein Profil hat, sieht eine Namenswahl; der Name wird als Profil (`User.nickname`, `User.ip`, `User.skin`) in der DB gespeichert (Migration `20261019120000_ip_profiles`).
+  - **Identitaet = Token pro Browser, nicht die IP** (Korrektur: in geteilten Netzen haetten alle dieselbe IP und damit dasselbe Profil). Das JWT liegt im httpOnly-Cookie und zusaetzlich
+    in `localStorage` als `Authorization: Bearer` (Fallback fuer Browser, die Cross-Site-Cookies blockieren). Laufzeit 180 Tage. Ist die Session weg (Neustart ohne Redis), baut `verifyGuest`
+    sie aus dem Profil in der DB neu auf. Die IP wird bei der Namenswahl nur gespeichert, nie zur Wiedererkennung benutzt.
+  - `GET /me`: Token gueltig -> Profil, sonst 401 -> Namenswahl. Gebannte IPs bekommen 403 `BANNED`. `POST /me {nickname}` legt ein Profil an (5/min/IP; Antwort enthaelt `token`),
+    `PATCH /me/name` benennt um (10/min), `/auth/logout` = "Nicht du?" (Client verwirft sein Token).
   - Umbenennen in der Lobby jederzeit; der neue Name gilt ab dem naechsten Beitritt (laufendes Match behaelt den Namen), die Bestenliste zeigt immer den aktuellen Namen.
   - Bestenliste: `GET /leaderboard?sort=kills|kd|deaths|matches|wins` (Top 100; K/D = Kills / max(1, Deaths); Siege = Matches mit `winnerId`). Antwort enthaelt nur
     `rank, nickname, kills, deaths, kd, matches, wins` – weder IDs noch IPs. `/history/:userId` entfaellt (haette IDs preisgegeben).
-- Grenzen: Eine IP ist kein Konto. Geteilte Anschluesse (WLAN, CGNAT) landen automatisch im selben Profil ("Nicht du?" legt ein eigenes an); wer die IP wechselt, startet ohne
-  Cookie ein neues Profil; wer Cookies loescht und die IP behaelt, bekommt das neueste Profil der IP zurueck (Namensimitation moeglich). Namen sind nicht eindeutig.
+- Grenzen: Das Profil haengt am Browser. Wer Browserdaten loescht oder das Geraet wechselt, waehlt einen neuen Namen (alte Statistik bleibt beim alten Profil). Namen sind nicht eindeutig.
+  IP-Banns (ADR-013) treffen weiterhin alle hinter derselben IP (geteiltes Netz).
 - Datenschutz: Die IP ist ein personenbezogenes Datum (DSGVO) und wird dauerhaft gespeichert – Hinweis auf der Namenswahl, nie in API-Antworten oder Logs. Bei Bedarf Datenschutzerklaerung
   und Loeschweg (Zeile in `User` entfernen) ergaenzen. Alte Spalten `email`/`passwordHash`/`isGuest` bleiben unbenutzt bestehen (nicht-destruktive Migration).

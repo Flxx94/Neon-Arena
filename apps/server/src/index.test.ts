@@ -38,7 +38,7 @@ describe('GET /health (M0-05)', () => {
 describe('Profile pro IP (ADR-014)', () => {
   const json = { 'content-type': 'application/json' }
 
-  it('neue IP: /me -> 401; Namenswahl -> Cookie; Reload ueber Cookie UND ueber IP (ohne Cookie)', async () => {
+  it('neuer Browser: /me -> 401; Namenswahl -> Cookie + Token; Reload ueber Cookie ODER Bearer', async () => {
     const { port, close } = await listen()
     const base = `http://127.0.0.1:${port}`
     try {
@@ -47,34 +47,67 @@ describe('Profile pro IP (ADR-014)', () => {
       expect(res.status).toBe(201)
       const cookie = (res.headers.get('set-cookie') ?? '').split(';')[0]!
       expect(cookie).toContain('na_guest=')
-      const body = (await res.json()) as { userId: string; nickname: string }
+      const body = (await res.json()) as { userId: string; nickname: string; token: string }
       expect(body.nickname).toBe('Neo_1')
+      expect(cookie).toContain(body.token)
 
       const viaCookie = await fetch(`${base}/me`, { headers: { cookie } })
-      expect(await viaCookie.json()).toEqual(body)
-      // Ohne Cookie (z.B. Cookie geloescht): gleiche IP -> gleiches Profil.
-      const viaIp = await fetch(`${base}/me`)
-      expect(viaIp.status).toBe(200)
-      expect(await viaIp.json()).toEqual(body)
-      expect(viaIp.headers.get('set-cookie') ?? '').toContain('na_guest=')
+      expect(viaCookie.status).toBe(200)
+      expect(((await viaCookie.json()) as { userId: string }).userId).toBe(body.userId)
+      const viaBearer = await fetch(`${base}/me`, { headers: { authorization: `Bearer ${body.token}` } })
+      expect(viaBearer.status).toBe(200)
+      expect(((await viaBearer.json()) as { nickname: string }).nickname).toBe('Neo_1')
+      expect((await fetch(`${base}/me`, { headers: { authorization: 'Bearer kaputt' } })).status).toBe(401)
     } finally {
       close()
     }
   })
 
-  it('"Nicht du?": Logout + /me?auto=0 -> 401, neuer Name = neues Profil', async () => {
+  it('geteiltes Netz: zwei Browser mit derselben IP haben getrennte Profile (kein Auto-Login ueber die IP)', async () => {
+    const { port, close } = await listen()
+    const base = `http://127.0.0.1:${port}`
+    try {
+      const h = { ...json, 'x-forwarded-for': '10.0.0.1' }
+      const a = (await (await fetch(`${base}/me`, { method: 'POST', headers: h, body: JSON.stringify({ nickname: 'Anna' }) })).json()) as { userId: string; token: string }
+      // Zweiter Browser (kein Cookie/Token), gleiche IP: bekommt NICHT Annas Profil.
+      expect((await fetch(`${base}/me`, { headers: { 'x-forwarded-for': '10.0.0.1' } })).status).toBe(401)
+      const b = (await (await fetch(`${base}/me`, { method: 'POST', headers: h, body: JSON.stringify({ nickname: 'Ben' }) })).json()) as { userId: string; token: string }
+      expect(b.userId).not.toBe(a.userId)
+      const meA = await fetch(`${base}/me`, { headers: { authorization: `Bearer ${a.token}`, 'x-forwarded-for': '10.0.0.1' } })
+      const meB = await fetch(`${base}/me`, { headers: { authorization: `Bearer ${b.token}`, 'x-forwarded-for': '10.0.0.1' } })
+      expect(((await meA.json()) as { nickname: string }).nickname).toBe('Anna')
+      expect(((await meB.json()) as { nickname: string }).nickname).toBe('Ben')
+    } finally {
+      close()
+    }
+  })
+
+  it('Server-Neustart (Session weg): gueltiges Token baut die Session aus dem Profil neu auf', async () => {
+    const { port, close } = await listen()
+    const base = `http://127.0.0.1:${port}`
+    try {
+      const a = (await (await fetch(`${base}/me`, { method: 'POST', headers: json, body: JSON.stringify({ nickname: 'Treu' }) })).json()) as { token: string }
+      await fetch(`${base}/me/skin`, { method: 'PATCH', headers: { ...json, authorization: `Bearer ${a.token}` }, body: JSON.stringify({ skin: 9 }) })
+      setSessionStore(new MemorySessionStore()) // Neustart ohne Redis
+      const me = await fetch(`${base}/me`, { headers: { authorization: `Bearer ${a.token}` } })
+      expect(me.status).toBe(200)
+      expect(await me.json()).toMatchObject({ nickname: 'Treu', skin: 9 })
+    } finally {
+      close()
+    }
+  })
+
+  it('"Nicht du?": Logout loescht das Cookie, neuer Name = neues Profil', async () => {
     const { port, close } = await listen()
     const base = `http://127.0.0.1:${port}`
     try {
       const a = await fetch(`${base}/me`, { method: 'POST', headers: json, body: JSON.stringify({ nickname: 'Alt' }) })
-      const cookie = (a.headers.get('set-cookie') ?? '').split(';')[0]!
-      const old = (await a.json()) as { userId: string }
-      expect((await fetch(`${base}/auth/logout`, { method: 'POST', headers: { cookie } })).status).toBe(204)
-      expect((await fetch(`${base}/me?auto=0`)).status).toBe(401)
+      const old = (await a.json()) as { userId: string; token: string }
+      const out = await fetch(`${base}/auth/logout`, { method: 'POST', headers: { authorization: `Bearer ${old.token}` } })
+      expect(out.status).toBe(204)
+      expect(out.headers.get('set-cookie') ?? '').toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/)
       const b = await fetch(`${base}/me`, { method: 'POST', headers: json, body: JSON.stringify({ nickname: 'Neu' }) })
-      const fresh = (await b.json()) as { userId: string; nickname: string }
-      expect(fresh.userId).not.toBe(old.userId)
-      expect(((await (await fetch(`${base}/me`)).json()) as { nickname: string }).nickname).toBe('Neu')
+      expect(((await b.json()) as { userId: string }).userId).not.toBe(old.userId)
     } finally {
       close()
     }
@@ -109,7 +142,6 @@ describe('Profile pro IP (ADR-014)', () => {
       expect(r.status).toBe(200)
       expect(((await r.json()) as { nickname: string }).nickname).toBe('Zweit')
       expect(((await (await fetch(`${base}/me`, { headers: { cookie } })).json()) as { nickname: string }).nickname).toBe('Zweit')
-      expect(((await (await fetch(`${base}/me?auto=1`)).json()) as { nickname: string }).nickname).toBe('Zweit')
       const bad = await fetch(`${base}/me/name`, { method: 'PATCH', headers: { ...json, cookie }, body: JSON.stringify({ nickname: 'a b' }) })
       expect(bad.status).toBe(400)
     } finally {
@@ -126,7 +158,7 @@ describe('Profile pro IP (ADR-014)', () => {
       const cookie = (a.headers.get('set-cookie') ?? '').split(';')[0]!
       expect((await fetch(`${base}/me/skin`, { method: 'PATCH', headers: { ...json, cookie }, body: JSON.stringify({ skin: 9999 }) })).status).toBe(400)
       expect((await fetch(`${base}/me/skin`, { method: 'PATCH', headers: { ...json, cookie }, body: JSON.stringify({ skin: 17 }) })).status).toBe(200)
-      expect(((await (await fetch(`${base}/me`)).json()) as { skin: number }).skin).toBe(17)
+      expect(((await (await fetch(`${base}/me`, { headers: { cookie } })).json()) as { skin: number }).skin).toBe(17)
     } finally {
       close()
     }

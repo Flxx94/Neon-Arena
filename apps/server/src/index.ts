@@ -42,9 +42,25 @@ function httpIp(req: Request): string {
   return req.socket.remoteAddress ?? 'unknown'
 }
 
-async function sessionFor(p: Profile): Promise<string> {
-  const { cookie } = await issueSession({ userId: p.id, nickname: p.nickname, skin: p.skin }, PROFILE_TTL_SECONDS)
-  return cookie
+/**
+ * Token des Profils: httpOnly-Cookie ODER `Authorization: Bearer` (Fallback fuer Browser, die
+ * Cross-Site-Cookies blockieren, z. B. Safari/Firefox bei Pages -> Render).
+ */
+function tokenOf(req: Request): string | undefined {
+  const cookie = parseCookie(req.headers.cookie ?? '')[GUEST_COOKIE]
+  if (cookie) return cookie
+  const auth = req.headers.authorization
+  return auth?.startsWith('Bearer ') ? auth.slice(7).trim() || undefined : undefined
+}
+
+async function identityOf(req: Request) {
+  const token = tokenOf(req)
+  return token ? await verifyGuest(token) : null
+}
+
+async function sessionFor(p: Profile): Promise<{ cookie: string; token: string }> {
+  const { cookie, token } = await issueSession({ userId: p.id, nickname: p.nickname, skin: p.skin }, PROFILE_TTL_SECONDS)
+  return { cookie, token }
 }
 
 export function createApp(): Express {
@@ -61,32 +77,22 @@ export function createApp(): Express {
     res.json({ ...metrics, tickMsP95: tickMsP95() })
   })
 
-  // Profil pro IP (ADR-014): Reload/Neustart behaelt die Identitaet.
-  // Cookie gilt zuerst; ohne Cookie wird (wenn `?auto=0` fehlt) das neueste Profil dieser IP geladen.
+  // Profil pro Browser (ADR-014): Token (Cookie/Bearer) identifiziert das Profil. Die IP wird nur
+  // gespeichert, nie zur Wiedererkennung benutzt (geteilte Netze: alle haetten sonst dasselbe Profil).
   app.get('/me', async (req, res) => {
-    const ip = httpIp(req)
-    if (await (await getBanStore()).isBanned(ip)) {
+    if (await (await getBanStore()).isBanned(httpIp(req))) {
       res.status(403).json({ error: 'BANNED' })
       return
     }
-    const token = parseCookie(req.headers.cookie ?? '')[GUEST_COOKIE]
-    const identity = token ? await verifyGuest(token) : null
+    const identity = await identityOf(req)
     if (identity) {
       res.json(identity)
       return
     }
-    if (req.query.auto !== '0') {
-      const profile = await getProfileStore().findByIp(ip)
-      if (profile) {
-        res.setHeader('Set-Cookie', await sessionFor(profile))
-        res.json({ userId: profile.id, nickname: profile.nickname, skin: profile.skin })
-        return
-      }
-    }
-    res.status(401).json({ error: token ? 'INVALID_SESSION' : 'NO_SESSION' })
+    res.status(401).json({ error: tokenOf(req) ? 'INVALID_SESSION' : 'NO_SESSION' })
   })
 
-  // Erste Namenswahl dieser IP (oder "Nicht du?" -> neues Profil). Limit 5/min/IP.
+  // Namenswahl: legt ein neues Profil an (Erststart oder "Nicht du?"), IP wird mitgespeichert. Limit 5/min/IP.
   app.post('/me', async (req, res) => {
     const ip = httpIp(req)
     if (await (await getBanStore()).isBanned(ip)) {
@@ -104,8 +110,9 @@ export function createApp(): Express {
     }
     try {
       const profile = await getProfileStore().create(parsed.data.nickname, ip)
-      res.setHeader('Set-Cookie', await sessionFor(profile))
-      res.status(201).json({ userId: profile.id, nickname: profile.nickname, skin: profile.skin })
+      const { cookie, token } = await sessionFor(profile)
+      res.setHeader('Set-Cookie', cookie)
+      res.status(201).json({ userId: profile.id, nickname: profile.nickname, skin: profile.skin, token })
     } catch (err) {
       console.error('[profile] create failed:', err)
       res.status(500).json({ error: 'SERVER_ERROR' })
@@ -114,8 +121,7 @@ export function createApp(): Express {
 
   // Umbenennen in der Lobby (gilt ab dem naechsten Beitritt; Leaderboard zeigt sofort den neuen Namen).
   app.patch('/me/name', async (req, res) => {
-    const token = parseCookie(req.headers.cookie ?? '')[GUEST_COOKIE]
-    const identity = token ? await verifyGuest(token) : null
+    const identity = await identityOf(req)
     if (!identity) {
       res.status(401).json({ error: 'NO_SESSION' })
       return
@@ -137,21 +143,17 @@ export function createApp(): Express {
     res.json({ ...identity, nickname })
   })
 
-  // "Nicht du?": Session verwerfen + Cookie loeschen (immer 204, auch ohne Session).
+  // "Nicht du?": Cookie loeschen (immer 204); der Client verwirft sein Token.
   app.post('/auth/logout', async (req, res) => {
-    const token = parseCookie(req.headers.cookie ?? '')[GUEST_COOKIE]
-    if (token) {
-      const identity = await verifyGuest(token)
-      if (identity) await getSessionStore().delete(identity.userId)
-    }
+    const identity = await identityOf(req)
+    if (identity) await getSessionStore().delete(identity.userId)
     res.setHeader('Set-Cookie', clearSessionCookie())
     res.status(204).end()
   })
 
   // Lobby: gewaehlten Look (Modell + Farbe) am Profil merken.
   app.patch('/me/skin', async (req, res) => {
-    const token = parseCookie(req.headers.cookie ?? '')[GUEST_COOKIE]
-    const identity = token ? await verifyGuest(token) : null
+    const identity = await identityOf(req)
     if (!identity) {
       res.status(401).json({ error: 'NO_SESSION' })
       return

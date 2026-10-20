@@ -1,6 +1,8 @@
 /**
- * Profil-API (ADR-014): Name pro IP waehlen/aendern, "Nicht du?", Skin merken.
- * Die Session lebt ausschliesslich im httpOnly-Cookie des Servers (hier nie ein Token speichern).
+ * Profil-API (ADR-014): Name waehlen/aendern, "Nicht du?", Skin merken.
+ * Identitaet = httpOnly-Cookie des Servers. Fallback fuer Browser, die Cross-Site-Cookies blockieren
+ * (Safari/Firefox): das Profil-Token liegt zusaetzlich in localStorage und geht als Bearer mit.
+ * Es ist nur ein zufaelliger Profilschluessel (kein Passwort, kein Geld) – XSS-Risiko entsprechend gering.
  */
 export const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:2567'
 
@@ -9,6 +11,33 @@ export interface Identity {
   nickname: string
   /** Zuletzt gewaehlter Look (Modell + Farbe). */
   skin: number
+}
+
+const TOKEN_KEY = 'neon-arena:token'
+
+function getToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+function setToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token)
+    else localStorage.removeItem(TOKEN_KEY)
+  } catch {
+    /* ignorieren (privater Modus) */
+  }
+}
+
+function headers(json = false): Record<string, string> {
+  const h: Record<string, string> = {}
+  if (json) h['content-type'] = 'application/json'
+  const t = getToken()
+  if (t) h.authorization = `Bearer ${t}`
+  return h
 }
 
 export class AuthError extends Error {
@@ -34,7 +63,7 @@ async function send(method: 'POST' | 'PATCH', path: string, body: unknown): Prom
     res = await fetch(`${SERVER_URL}${path}`, {
       method,
       credentials: 'include',
-      headers: { 'content-type': 'application/json' },
+      headers: headers(true),
       body: JSON.stringify(body),
     })
   } catch {
@@ -44,7 +73,10 @@ async function send(method: 'POST' | 'PATCH', path: string, body: unknown): Prom
     const code = ((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'SERVER_ERROR'
     throw new AuthError(code, MESSAGES[code] ?? 'Das hat nicht geklappt.')
   }
-  return (await res.json()) as Identity
+  const data = (await res.json()) as Identity & { token?: string }
+  if (data.token) setToken(data.token)
+  const { token: _t, ...identity } = data
+  return identity
 }
 
 export type MeResult =
@@ -53,15 +85,15 @@ export type MeResult =
   | { state: 'banned' }
   | { state: 'offline' }
 
-/**
- * Welches Profil gehoert zu mir? Cookie zuerst, sonst das Profil dieser IP.
- * `auto=false` (nach "Nicht du?") ueberspringt die IP-Zuordnung.
- */
-export async function fetchMe(auto = true): Promise<MeResult> {
+/** Welches Profil gehoert zu diesem Browser (Cookie/Token)? */
+export async function fetchMe(): Promise<MeResult> {
   try {
-    const res = await fetch(`${SERVER_URL}/me${auto ? '' : '?auto=0'}`, { credentials: 'include' })
+    const res = await fetch(`${SERVER_URL}/me`, { credentials: 'include', headers: headers() })
     if (res.ok) return { state: 'ok', identity: (await res.json()) as Identity }
-    if (res.status === 401) return { state: 'anon' }
+    if (res.status === 401) {
+      setToken(null) // abgelaufen/unbekannt
+      return { state: 'anon' }
+    }
     if (res.status === 403) return { state: 'banned' }
     return { state: 'offline' }
   } catch {
@@ -77,7 +109,9 @@ export const renameProfile = (nickname: string) => send('PATCH', '/me/name', { n
 
 /** "Nicht du?": Session verwerfen, danach neuen Namen waehlen. */
 export async function logout(): Promise<void> {
-  await fetch(`${SERVER_URL}/auth/logout`, { method: 'POST', credentials: 'include' }).catch(
+  const h = headers()
+  setToken(null)
+  await fetch(`${SERVER_URL}/auth/logout`, { method: 'POST', credentials: 'include', headers: h }).catch(
     () => undefined,
   )
 }
@@ -87,7 +121,7 @@ export async function saveSkin(skin: number): Promise<void> {
   await fetch(`${SERVER_URL}/me/skin`, {
     method: 'PATCH',
     credentials: 'include',
-    headers: { 'content-type': 'application/json' },
+    headers: headers(true),
     body: JSON.stringify({ skin }),
   }).catch(() => undefined)
 }

@@ -11,8 +11,8 @@ export interface Profile {
 }
 
 export interface ProfileStore {
-  /** Neuestes Profil dieser IP (oder null). */
-  findByIp(ip: string): Promise<Profile | null>
+  /** Profil per ID (Session-Wiederherstellung nach Server-Neustart). */
+  findById(id: string): Promise<Profile | null>
   create(nickname: string, ip: string): Promise<Profile>
   rename(id: string, nickname: string): Promise<void>
   setSkin(id: string, skin: number): Promise<void>
@@ -22,9 +22,8 @@ export interface ProfileStore {
 export class MemoryProfileStore implements ProfileStore {
   private list: Profile[] = []
 
-  async findByIp(ip: string): Promise<Profile | null> {
-    const n = normalizeIp(ip)
-    const p = [...this.list].reverse().find((x) => x.ip === n)
+  async findById(id: string): Promise<Profile | null> {
+    const p = this.list.find((x) => x.id === id)
     return p ? { ...p } : null
   }
 
@@ -56,7 +55,7 @@ interface DbRow {
 export interface ProfileDb {
   user: {
     create: (args: { data: { id: string; nickname: string; ip: string; skin: number; isGuest: boolean } }) => Promise<unknown>
-    findFirst: (args: { where: { ip: string }; orderBy: { createdAt: 'desc' } }) => Promise<DbRow | null>
+    findUnique: (args: { where: { id: string } }) => Promise<DbRow | null>
     update: (args: { where: { id: string }; data: { nickname: string } | { skin: number } }) => Promise<unknown>
   }
 }
@@ -64,9 +63,9 @@ export interface ProfileDb {
 export class PrismaProfileStore implements ProfileStore {
   constructor(private db: ProfileDb) {}
 
-  async findByIp(ip: string): Promise<Profile | null> {
-    const u = await this.db.user.findFirst({ where: { ip: normalizeIp(ip) }, orderBy: { createdAt: 'desc' } })
-    return u ? { id: u.id, nickname: u.nickname, skin: u.skin, ip: u.ip ?? normalizeIp(ip) } : null
+  async findById(id: string): Promise<Profile | null> {
+    const u = await this.db.user.findUnique({ where: { id } })
+    return u ? { id: u.id, nickname: u.nickname, skin: u.skin, ip: u.ip ?? '' } : null
   }
 
   async create(nickname: string, ip: string): Promise<Profile> {
