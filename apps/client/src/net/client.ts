@@ -3,6 +3,17 @@ import { MAX_INPUT_PER_SECOND, PROTOCOL_V, type AdminPlayerInput, type AdminRoun
 
 import { SERVER_URL, type Identity } from './auth.js'
 
+export interface AdminBan {
+  ip: string
+  nickname: string
+  at: number
+}
+
+export interface AdminInfo {
+  ips: Record<string, string>
+  bans: AdminBan[]
+}
+
 export interface NetEvents {
   onSnapshot: (snapshot: WorldSnapshot) => void
   onKill: (by: string, victim: string) => void
@@ -86,6 +97,7 @@ export class NetClient {
       userId: identity.userId,
       skin,
     })
+    this.room.onMessage('adminInfo', (msg: AdminInfo) => this.onAdminInfo?.(msg))
     this.room.onMessage('adminAuth', (msg: { ok: boolean }) => this.onAdminAuth?.(!!msg?.ok))
     this.room.onMessage('killfeed', (msg: { by: string; victim: string }) => {
       events.onKill(String(msg.by), String(msg.victim))
@@ -186,7 +198,9 @@ export class NetClient {
       events.onSnapshot(snapshot)
     })
     this.room.onError((_code, message) => events.onError(message || 'Verbindung verloren'))
-    this.room.onLeave(() => events.onError('Verbindung getrennt'))
+    this.room.onLeave((code) =>
+      events.onError(code === 4403 ? 'Du wurdest vom Server entfernt.' : 'Verbindung getrennt'),
+    )
   }
 
   /** Wird vom Game-Loop mit 30 Hz aufgerufen; seq steigt pro Input. Gibt seq zurueck. */
@@ -210,6 +224,21 @@ export class NetClient {
 
   /** Admin-Panel: Antwort auf `adminAuth` (true = angemeldet). */
   onAdminAuth: ((ok: boolean) => void) | null = null
+
+  /** Admin-Panel: IPs der Spieler + Bann-Liste. */
+  onAdminInfo: ((info: AdminInfo) => void) | null = null
+
+  adminInfo(): void {
+    this.room?.send('adminInfo', {})
+  }
+
+  adminBan(target: string): void {
+    this.room?.send('adminBan', { target })
+  }
+
+  adminUnban(ip: string): void {
+    this.room?.send('adminUnban', { ip })
+  }
 
   adminAuth(token: string): void {
     this.room?.send('adminAuth', { token })

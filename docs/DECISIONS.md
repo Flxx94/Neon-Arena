@@ -137,3 +137,14 @@
     Zeit +/-, Karte waehlen. Berechtigung ausschliesslich serverseitig: Nachricht `adminAuth` mit `ADMIN_TOKEN` (Env, nie im Bundle; SHA-256 + `timingSafeEqual`, 5 Versuche/min/IP).
     Ohne gesetztes Token ist alles deaktiviert. Nachrichten `adminPlayer`/`adminRound` werden mit Zod validiert und nur von angemeldeten Sessions dieser Raum-Instanz akzeptiert.
   - Logik in `sim/engine.ts` (`adminPlayer`, `adminRound`), Werte werden geklemmt; Aktionen landen im Server-Log. Spielernamen werden im Panel nur per `textContent` gerendert.
+
+## ADR-013: IP-Bann im Admin-Panel
+- Status: akzeptiert (2026-10-19)
+- Entscheidung:
+  - Admin sieht je Spieler die IP (nur per Nachricht `adminInfo` an angemeldete Admins, nie im State/Broadcast) und kann sie bannen (`adminBan`, Ziel = Session-ID) bzw. wieder entbannen (`adminUnban`).
+    Das Panel zeigt die Liste der gebannten IPs (Nickname, IP, Zeitpunkt). Bots lassen sich nicht bannen; der Admin kann nicht die eigene IP bannen (Aussperr-Schutz).
+  - Speicher: `db/bans.ts` — Redis-Hash `bans:ip` (ueberlebt Neustarts, gilt fuer alle Nodes), sonst Memory. IPv4-mapped IPv6 wird normalisiert.
+  - Durchsetzung: `onJoin` weist gebannte IPs mit `BANNED` ab; beim Bann werden alle Verbindungen dieser IP in allen Raeumen getrennt (Code 4403, Client zeigt "Du wurdest vom Server entfernt").
+  - Client-IP: hinter Proxy der LETZTE `X-Forwarded-For`-Eintrag (der erste ist faelschbar), `TRUST_PROXY=false` ignoriert den Header.
+  - Grenzen: IP-Banns treffen geteilte Anschluesse (WLAN, Mobilfunk-CGNAT) mit; wer die IP wechselt (VPN/Mobilfunk), umgeht den Bann. IPs sind personenbezogene Daten:
+    nur im Admin-Panel sichtbar, nicht im Log; Bann-Eintraege bei Bedarf wieder entfernen.

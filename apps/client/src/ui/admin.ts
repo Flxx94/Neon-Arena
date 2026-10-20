@@ -1,5 +1,5 @@
 import { MAPS, MODEL_COUNT, MODEL_NAMES, ULT_MAX, skinModel } from '@neon-arena/shared'
-import type { ClientPlayer } from '../net/client.js'
+import type { AdminInfo, ClientPlayer } from '../net/client.js'
 import type { NetClient } from '../net/client.js'
 
 /**
@@ -79,7 +79,9 @@ export function initAdmin(deps: AdminDeps): { toggle: () => void } {
   )
 
   const list = el('div', 'admin-list')
-  body.append(round, list)
+  const bansHead = el('h3', 'admin-sub', 'Gebannte IPs')
+  const bansList = el('div', 'admin-bans')
+  body.append(round, bansHead, bansList, list)
   root.append(head, login, body)
   document.body.append(root)
 
@@ -89,12 +91,39 @@ export function initAdmin(deps: AdminDeps): { toggle: () => void } {
   }
 
   let authed = false
+  let info: AdminInfo = { ips: {}, bans: [] }
+  const fmtDate = (t: number): string => new Date(t).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })
+  function renderBans(): void {
+    bansList.replaceChildren()
+    if (info.bans.length === 0) {
+      bansList.append(el('p', 'admin-status', 'Keine gebannten Spieler.'))
+      return
+    }
+    for (const b of info.bans) {
+      const row = el('div', 'admin-ban')
+      const txt = el('span')
+      txt.append(el('b', undefined, b.nickname || '?'), el('span', 'admin-tag', ` ${b.ip} · ${fmtDate(b.at)}`))
+      row.append(txt, mkBtn('Entbannen', () => net.adminUnban(b.ip), 'btn tiny'))
+      bansList.append(row)
+    }
+  }
+  net.onAdminInfo = (i) => {
+    info = i
+    renderBans()
+    for (const [id, r] of rows) {
+      const ip = info.ips[id]
+      if (r.ip) r.ip.textContent = ip ?? ''
+    }
+  }
   net.onAdminAuth = (ok) => {
     authed = ok
     status.textContent = ok ? 'Angemeldet.' : 'Token falsch oder Admin nicht aktiviert.'
     login.hidden = ok
     body.hidden = !ok
-    if (ok) token.value = ''
+    if (ok) {
+      token.value = ''
+      net.adminInfo()
+    }
   }
   const doLogin = (): void => {
     if (!deps.connected()) {
@@ -111,6 +140,7 @@ export function initAdmin(deps: AdminDeps): { toggle: () => void } {
 
   interface Row {
     stats: HTMLElement
+    ip: HTMLElement | null
   }
   const rows = new Map<string, Row>()
   let sig = ''
@@ -124,6 +154,8 @@ export function initAdmin(deps: AdminDeps): { toggle: () => void } {
       const cls = { name: MODEL_NAMES[skinModel(p.skin) % MODEL_COUNT] ?? '' }
       title.append(el('b', undefined, p.nickname), el('span', 'admin-tag', p.isBot ? `BOT · ${cls?.name ?? ''}` : (cls?.name ?? '')))
       const stats = el('div', 'admin-stats')
+      const ipEl = el('span', 'admin-tag admin-ip', info.ips[p.id] ?? '')
+      if (!p.isBot) title.append(ipEl)
       const act = el('div', 'admin-actions')
       const t = p.id
       const A = (label: string, fn: () => void, title2?: string): void => {
@@ -146,9 +178,16 @@ export function initAdmin(deps: AdminDeps): { toggle: () => void } {
         if (confirm(`${p.nickname} wirklich kicken?`)) net.adminPlayer({ action: 'kick', target: t })
       }, 'btn tiny danger')
       act.append(kick)
+      if (!p.isBot) {
+        act.append(
+          mkBtn('IP-Bann', () => {
+            if (confirm(`${p.nickname} (${info.ips[p.id] ?? 'IP unbekannt'}) per IP bannen?`)) net.adminBan(p.id)
+          }, 'btn tiny danger'),
+        )
+      }
       card.append(title, stats, act)
       list.append(card)
-      rows.set(p.id, { stats })
+      rows.set(p.id, { stats, ip: p.isBot ? null : ipEl })
     }
   }
 
@@ -167,12 +206,17 @@ export function initAdmin(deps: AdminDeps): { toggle: () => void } {
     }
   }
   setInterval(refresh, 250)
+  // IPs + Bann-Liste regelmaessig vom Server holen, solange das Panel offen und angemeldet ist.
+  setInterval(() => {
+    if (!root.hidden && authed) net.adminInfo()
+  }, 2000)
 
   const toggle = (): void => {
     root.hidden = !root.hidden
     if (!root.hidden) {
       sig = ''
       if (!authed) token.focus()
+      else net.adminInfo()
       refresh()
     }
   }

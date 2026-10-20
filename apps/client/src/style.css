@@ -1803,3 +1803,24 @@ body.touch.playing #tools .icon-btn {
   flex-wrap: wrap;
   gap: 5px;
 }
+.admin-sub {
+  margin: 14px 0 6px;
+  font: 900 14px/1 var(--font);
+}
+.admin-bans {
+  display: grid;
+  gap: 6px;
+}
+.admin-ban {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--panel-2);
+  border: 2.5px solid var(--ink);
+  border-radius: var(--r-sm);
+}
+.admin-ip {
+  font-family: var(--mono);
+}

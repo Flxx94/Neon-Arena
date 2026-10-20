@@ -887,6 +887,8 @@ playBtn.addEventListener('click', () => {
       if (msg.includes('PROTOCOL_MISMATCH')) {
         joinError.textContent = 'Neue Version verfügbar – bitte neu laden.'
         reloadBtn.hidden = false
+      } else if (msg.includes('BANNED')) {
+        joinError.textContent = 'Du wurdest von diesem Server gesperrt.'
       } else if (msg.includes('INVALID_GUEST')) {
         // Session abgelaufen (z. B. Server-Neustart): zurueck zur Anmeldung.
         backToAuth('Deine Sitzung ist abgelaufen – bitte erneut anmelden.')

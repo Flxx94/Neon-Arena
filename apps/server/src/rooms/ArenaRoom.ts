@@ -14,8 +14,11 @@ import {
   adminAuthSchema,
   adminPlayerSchema,
   adminRoundSchema,
+  adminBanSchema,
+  adminUnbanSchema,
   MAP_COUNT,
 } from '@neon-arena/shared'
+import { getBanStore, normalizeIp } from '../db/bans.js'
 import { getSessionStore } from '../auth/sessions.js'
 import { getDb } from '../db/prisma.js'
 import { persistMatch, type ResultsDb } from '../db/results.js'
@@ -45,8 +48,13 @@ export class ArenaRoom extends Room<ArenaState> {
   private userIds = new Map<string, string>()
   /** Sessions, die sich mit dem ADMIN_TOKEN angemeldet haben (nur diese Raum-Instanz). */
   private admins = new Set<string>()
+  /** IP je Session (nur fuer Admin-Panel + Bann-Pruefung; nie im State/Broadcast). */
+  private ips = new Map<string, string>()
+  /** Alle laufenden Raeume: ein IP-Bann wirkt sofort auf Verbindungen in allen Raeumen. */
+  private static rooms = new Set<ArenaRoom>()
 
   onCreate() {
+    ArenaRoom.rooms.add(this)
     // Bots per Env schaltbar (PLAN M3-06): Tests setzen BOTS_ENABLED=false.
     this.ctx = createContext(process.env.BOTS_ENABLED !== 'false')
     // Kurze Runden fuer Tests (M4): ROUND_SECONDS_OVERRIDE in Sekunden.
@@ -91,6 +99,9 @@ export class ArenaRoom extends Room<ArenaState> {
     this.onMessage('adminAuth', (client, raw) => {
       void this.handleAdminAuth(client, raw)
     })
+    this.onMessage('adminInfo', (client) => void this.sendAdminInfo(client))
+    this.onMessage('adminBan', (client, raw) => void this.handleAdminBan(client, raw))
+    this.onMessage('adminUnban', (client, raw) => void this.handleAdminUnban(client, raw))
     this.onMessage('adminPlayer', (client, raw) => this.handleAdminPlayer(client, raw))
     this.onMessage('adminRound', (client, raw) => this.handleAdminRound(client, raw))
     // Charakterwechsel: nur waehrend man tot ist; wirkt ab dem naechsten Respawn (HP/Waffe/Tempo der Klasse).
@@ -120,6 +131,47 @@ export class ArenaRoom extends Room<ArenaState> {
     const ok = timingSafeEqual(a, b)
     if (ok) this.admins.add(client.sessionId)
     reply(ok)
+  }
+
+  /** IPs der Spieler dieser Instanz + Bann-Liste (nur an angemeldete Admins). */
+  private async sendAdminInfo(client: Client): Promise<void> {
+    if (!this.isAdmin(client)) return
+    const ips: Record<string, string> = {}
+    for (const [id, ip] of this.ips) ips[id] = ip
+    client.send('adminInfo', { ips, bans: await (await getBanStore()).list() })
+  }
+
+  private async handleAdminBan(client: Client, raw: unknown): Promise<void> {
+    if (!this.isAdmin(client)) return
+    const parsed = adminBanSchema.safeParse(raw)
+    if (!parsed.success) return
+    const ip = this.ips.get(parsed.data.target)
+    const player = this.state.players.get(parsed.data.target)
+    if (!ip || !player || player.isBot) return
+    if (normalizeIp(ip) === normalizeIp(clientIp(client))) return // kein Selbst-Bann (Aussperr-Schutz)
+    await (await getBanStore()).add({ ip, nickname: player.nickname, at: Date.now() })
+    console.log(`[admin] ip-ban ${player.nickname}`)
+    ArenaRoom.kickIp(ip)
+    await this.sendAdminInfo(client)
+  }
+
+  private async handleAdminUnban(client: Client, raw: unknown): Promise<void> {
+    if (!this.isAdmin(client)) return
+    const parsed = adminUnbanSchema.safeParse(raw)
+    if (!parsed.success) return
+    if (await (await getBanStore()).remove(parsed.data.ip)) console.log('[admin] ip-unban')
+    await this.sendAdminInfo(client)
+  }
+
+  /** Alle Verbindungen dieser IP in allen Raeumen trennen. */
+  private static kickIp(ip: string): void {
+    const n = normalizeIp(ip)
+    for (const room of ArenaRoom.rooms) {
+      for (const c of room.clients) {
+        const cip = room.ips.get(c.sessionId)
+        if (cip && normalizeIp(cip) === n) c.leave(4403)
+      }
+    }
   }
 
   private handleAdminPlayer(client: Client, raw: unknown): void {
@@ -171,6 +223,9 @@ export class ArenaRoom extends Room<ArenaState> {
       // M5-01: Version-Gate mit Reload-Hinweis.
       throw new Error('PROTOCOL_MISMATCH:Bitte neu laden')
     }
+    // IP-Bann (Admin-Panel): gesperrte Adressen kommen nicht mehr hinein.
+    const ip = clientIp(client)
+    if (await (await getBanStore()).isBanned(ip)) throw new Error('BANNED')
     // M4-05: Join-Limit 5/min/IP.
     if (!(await checkLimit(getRateStore(), `join:${clientIp(client)}`, 5, 60_000))) {
       throw new Error('RATE_LIMITED')
@@ -191,6 +246,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.state.players.set(client.sessionId, player)
     initPlayer(this.ctx, client.sessionId, spawn)
     this.userIds.set(client.sessionId, parsed.data.userId as string)
+    this.ips.set(client.sessionId, ip)
   }
 
   async onLeave(client: Client, consented: boolean) {
@@ -198,6 +254,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.userIds.delete(client.sessionId)
     // Explizites leave() -> sofort entfernen; Abriss -> 15 s Grace (M3-01).
     if (consented) {
+      this.ips.delete(client.sessionId)
       removePlayer(this.ctx, this.state, client.sessionId)
       return
     }
@@ -205,8 +262,13 @@ export class ArenaRoom extends Room<ArenaState> {
       await this.allowReconnection(client, RECONNECT_GRACE_SECONDS)
       // Reconnected: Spieler + Score bleiben erhalten.
     } catch {
+      this.ips.delete(client.sessionId)
       removePlayer(this.ctx, this.state, client.sessionId)
     }
+  }
+
+  onDispose() {
+    ArenaRoom.rooms.delete(this)
   }
 
   /** Rundenende async persistieren (M4-03): fire-and-forget, nie im Sim-Tick warten. */
@@ -248,9 +310,21 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 }
 
-/** Client-IP mit Fallbacks (WS-Socket -> Session). */
+/**
+ * Client-IP: hinter einem Reverse-Proxy (Render, nginx, Compose) der LETZTE `X-Forwarded-For`-Eintrag
+ * (den der naechste vertrauenswuerdige Proxy angehaengt hat; der erste waere client-faelschbar).
+ * `TRUST_PROXY=false` (Server direkt im Netz) ignoriert den Header. Fallback: Socket-Adresse.
+ */
 export function clientIp(client: Client): string {
-  const req = (client as unknown as { request?: { socket?: { remoteAddress?: string } } }).request
+  const req = (client as unknown as {
+    request?: { socket?: { remoteAddress?: string }; headers?: Record<string, string | string[] | undefined> }
+  }).request
   const sock = (client as unknown as { _socket?: { remoteAddress?: string } })._socket
+  if (process.env.TRUST_PROXY !== 'false') {
+    const fwd = req?.headers?.['x-forwarded-for']
+    const raw = Array.isArray(fwd) ? fwd.join(',') : fwd
+    const last = raw?.split(',').at(-1)?.trim()
+    if (last) return last
+  }
   return req?.socket?.remoteAddress ?? sock?.remoteAddress ?? client.sessionId
 }
