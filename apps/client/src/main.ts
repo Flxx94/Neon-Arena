@@ -41,11 +41,10 @@ import { ModelPreview } from './ui/preview.js'
 import { loadProfile, saveProfile, settings, type ThemePref } from './ui/settings.js'
 import {
   AuthError,
+  createProfile,
   fetchMe,
-  guestLogin,
-  login,
   logout,
-  register,
+  renameProfile,
   saveSkin,
   type Identity,
 } from './net/auth.js'
@@ -58,18 +57,16 @@ const canvas = $<HTMLCanvasElement>('game')
 const debugEl = $<HTMLDivElement>('debug')
 const joinEl = $<HTMLDivElement>('join')
 const joinForm = $<HTMLFormElement>('join-card')
-const authForm = $<HTMLFormElement>('auth-card')
-const authTabs = $<HTMLDivElement>('auth-tabs')
-const authEmail = $<HTMLInputElement>('auth-email')
-const authNick = $<HTMLInputElement>('auth-nickname')
-const authPass = $<HTMLInputElement>('auth-password')
-const authHint = $<HTMLParagraphElement>('auth-hint')
-const authError = $<HTMLParagraphElement>('auth-error')
-const authSubmit = $<HTMLButtonElement>('auth-submit')
-const authReload = $<HTMLButtonElement>('auth-reload')
+const nameForm = $<HTMLFormElement>('name-card')
+const nameInput = $<HTMLInputElement>('name-input')
+const nameError = $<HTMLParagraphElement>('name-error')
+const nameSubmit = $<HTMLButtonElement>('name-submit')
+const nameReload = $<HTMLButtonElement>('name-reload')
+const renameRow = $<HTMLDivElement>('rename-row')
+const renameInput = $<HTMLInputElement>('rename-input')
+const renameError = $<HTMLParagraphElement>('rename-error')
 const bootEl = $<HTMLParagraphElement>('boot')
 const lobbyName = $<HTMLSpanElement>('lobby-name')
-const lobbyBadge = $<HTMLSpanElement>('lobby-badge')
 const playBtn = $<HTMLButtonElement>('play')
 const joinError = $<HTMLParagraphElement>('join-error')
 const reloadBtn = $<HTMLButtonElement>('reload')
@@ -402,45 +399,18 @@ addEventListener('pointermove', (e) => preview.lookAt(e.clientX, e.clientY))
 syncPicker(false)
 
 reloadBtn.addEventListener('click', () => location.reload())
-authReload.addEventListener('click', () => location.reload())
+nameReload.addEventListener('click', () => location.reload())
 joinForm.addEventListener('submit', (e) => e.preventDefault())
 
 // ---------------------------------------------------------------------------------------
-// Zugang: Anmelden / Registrieren / Gast  ->  Lobby
+// Profil pro IP: Namenswahl -> Lobby (Umbenennen jederzeit in der Lobby)
 // ---------------------------------------------------------------------------------------
-type AuthMode = 'login' | 'register' | 'guest'
+const NICK_RE = /^[a-zA-Z0-9_-]{1,16}$/
+const NICK_HINT = 'Spielername: 1–16 Zeichen, nur a-z 0-9 _ -'
 let identity: Identity | null = null
-let authMode: AuthMode = 'login'
 
-const MODE_TEXT: Record<AuthMode, { submit: string; hint: string }> = {
-  login: { submit: 'Anmelden', hint: '' },
-  register: {
-    submit: 'Konto erstellen',
-    hint: 'Dein Look und dein Name werden an dein Konto gebunden.',
-  },
-  guest: {
-    submit: 'Als Gast starten',
-    hint: 'Ohne Konto: Dein Fortschritt wird nicht dauerhaft gespeichert.',
-  },
-}
-
-function setAuthMode(mode: AuthMode): void {
-  authMode = mode
-  authTabs.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
-    b.setAttribute('aria-selected', String(b.dataset.mode === mode))
-  })
-  authForm.querySelectorAll<HTMLElement>('[data-for]').forEach((el) => {
-    el.hidden = !(el.dataset.for ?? '').split(' ').includes(mode)
-  })
-  authSubmit.textContent = MODE_TEXT[mode].submit
-  authHint.textContent = MODE_TEXT[mode].hint
-  authPass.autocomplete = mode === 'register' ? 'new-password' : 'current-password'
-  authError.textContent = ''
-  authForm.querySelectorAll('.invalid').forEach((el) => el.classList.remove('invalid'))
-}
-
-function flagInvalid(el: HTMLInputElement, message: string): void {
-  authError.textContent = message
+function flagInvalid(el: HTMLInputElement, errEl: HTMLElement, message: string): void {
+  errEl.textContent = message
   el.classList.remove('invalid')
   void el.offsetWidth
   el.classList.add('invalid')
@@ -449,119 +419,127 @@ function flagInvalid(el: HTMLInputElement, message: string): void {
   sfx.uiError()
 }
 
-type View = 'boot' | 'auth' | 'lobby'
+type View = 'boot' | 'name' | 'lobby'
 function showView(view: View): void {
   bootEl.hidden = view !== 'boot'
-  authForm.hidden = view !== 'auth'
+  nameForm.hidden = view !== 'name'
   joinForm.hidden = view !== 'lobby'
-  if (view === 'auth') (authMode === 'guest' ? authNick : authEmail).focus({ preventScroll: true })
+  if (view === 'name' && !nameInput.disabled) nameInput.focus({ preventScroll: true })
 }
 
-/** Lobby mit der Identitaet befuellen (Name, Konto/Gast-Badge, gespeicherter Look). */
+function closeRename(): void {
+  renameRow.hidden = true
+  renameError.textContent = ''
+}
+
+/** Lobby mit dem Profil befuellen (Name, gespeicherter Look). */
 function enterLobby(who: Identity, restoreLook: boolean): void {
   identity = who
   lobbyName.textContent = who.nickname
-  lobbyBadge.textContent = who.isGuest ? 'Gast' : 'Konto'
-  lobbyBadge.classList.toggle('guest', who.isGuest)
-  if (restoreLook && !who.isGuest) {
+  if (restoreLook) {
     model = skinModel(who.skin)
     color = skinColor(who.skin)
     syncPicker(false)
   }
+  closeRename()
   joinError.textContent = ''
   showView('lobby')
 }
 
-function backToAuth(message = ''): void {
+function backToName(message = ''): void {
   identity = null
-  authPass.value = ''
-  authError.textContent = message
-  showView('auth')
+  nameInput.value = ''
+  nameError.textContent = message
+  showView('name')
 }
 
-authTabs.addEventListener('click', (e) => {
-  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-mode]')
-  if (b) setAuthMode(b.dataset.mode as AuthMode)
-})
-
-authForm.addEventListener('submit', (e) => {
+nameForm.addEventListener('submit', (e) => {
   e.preventDefault()
-  const email = authEmail.value.trim()
-  const nickname = authNick.value.trim()
-  const password = authPass.value
-  // Fruehes Feedback; der Server validiert erneut (Zod).
-  if (authMode !== 'guest') {
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      flagInvalid(authEmail, 'Bitte eine gültige E-Mail-Adresse eingeben.')
-      return
-    }
-    if (password.length < (authMode === 'register' ? 8 : 1)) {
-      flagInvalid(
-        authPass,
-        authMode === 'register' ? 'Das Passwort braucht mindestens 8 Zeichen.' : 'Bitte Passwort eingeben.',
-      )
-      return
-    }
-  }
-  if (authMode !== 'login' && !/^[a-zA-Z0-9_-]{1,16}$/.test(nickname)) {
-    flagInvalid(authNick, 'Spielername: 1–16 Zeichen, nur a-z 0-9 _ -')
+  const nickname = nameInput.value.trim()
+  if (!NICK_RE.test(nickname)) {
+    flagInvalid(nameInput, nameError, NICK_HINT)
     return
   }
-  authError.textContent = ''
-  authSubmit.disabled = true
-  const label = authSubmit.textContent
-  authSubmit.textContent = 'Einen Moment …'
+  nameError.textContent = ''
+  nameSubmit.disabled = true
+  const label = nameSubmit.textContent
+  nameSubmit.textContent = 'Einen Moment …'
   sfx.unlock()
-  const request =
-    authMode === 'login'
-      ? login(email, password)
-      : authMode === 'register'
-        ? register(email, password, nickname)
-        : guestLogin(nickname)
-  void request
+  void createProfile(nickname)
     .then((who) => {
-      authPass.value = ''
-      if (authMode === 'register') {
-        // Neues Konto: mit zufaelligem Look starten und ihn gleich am Konto merken.
-        model = Math.floor(Math.random() * MODEL_COUNT)
-        color = Math.floor(Math.random() * COLOR_COUNT)
-        syncPicker(false)
-        void saveSkin(currentSkin())
-        enterLobby(who, false)
-      } else if (authMode === 'guest') {
-        const saved = loadProfile().skin
-        if (saved >= 0) {
-          model = skinModel(saved)
-          color = skinColor(saved)
-          syncPicker(false)
-        }
-        enterLobby(who, false)
-      } else {
-        enterLobby(who, true)
-      }
+      // Neues Profil: gemerkten Look dieses Browsers uebernehmen, sonst zufaellig; gleich am Profil speichern.
+      const saved = loadProfile().skin
+      model = saved >= 0 ? skinModel(saved) : Math.floor(Math.random() * MODEL_COUNT)
+      color = saved >= 0 ? skinColor(saved) : Math.floor(Math.random() * COLOR_COUNT)
+      syncPicker(false)
+      void saveSkin(currentSkin())
+      enterLobby(who, false)
       sfx.uiStart()
     })
     .catch((err: unknown) => {
-      const msg = err instanceof AuthError ? err.message : 'Anmeldung fehlgeschlagen.'
-      authError.textContent = msg
-      if (err instanceof AuthError && err.code === 'EMAIL_TAKEN') setAuthMode('login')
-      authError.textContent = msg
+      nameError.textContent = err instanceof AuthError ? err.message : 'Das hat nicht geklappt.'
       sfx.uiError()
     })
     .finally(() => {
-      authSubmit.disabled = false
-      authSubmit.textContent = authMode === 'login' ? MODE_TEXT.login.submit : label
+      nameSubmit.disabled = false
+      nameSubmit.textContent = label
     })
 })
 
+function openRename(): void {
+  renameRow.hidden = false
+  renameInput.value = identity?.nickname ?? ''
+  renameError.textContent = ''
+  renameInput.focus()
+  renameInput.select()
+}
+
+function saveRename(): void {
+  if (!identity) return
+  const nickname = renameInput.value.trim()
+  if (!NICK_RE.test(nickname)) {
+    flagInvalid(renameInput, renameError, NICK_HINT)
+    return
+  }
+  if (nickname === identity.nickname) {
+    closeRename()
+    return
+  }
+  void renameProfile(nickname)
+    .then((who) => {
+      identity = who
+      lobbyName.textContent = who.nickname
+      saveProfile(who.nickname, currentSkin())
+      closeRename()
+      showToast('Name geändert', skinTone(skinColor(currentSkin())).base)
+    })
+    .catch((err: unknown) => {
+      renameError.textContent = err instanceof AuthError ? err.message : 'Das hat nicht geklappt.'
+      if (err instanceof AuthError && err.code === 'NO_SESSION') backToName('Sitzung abgelaufen – bitte Namen neu wählen.')
+      sfx.uiError()
+    })
+}
+
+$<HTMLButtonElement>('rename-btn').addEventListener('click', () => (renameRow.hidden ? openRename() : closeRename()))
+$<HTMLButtonElement>('rename-save').addEventListener('click', saveRename)
+$<HTMLButtonElement>('rename-cancel').addEventListener('click', closeRename)
+renameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    saveRename()
+  } else if (e.key === 'Escape') {
+    closeRename()
+  }
+})
+
+// "Nicht du?" (geteilte IP, z. B. WLAN): Look sichern, Session verwerfen, neues Profil anlegen.
 $<HTMLButtonElement>('logout').addEventListener('click', () => {
   window.clearTimeout(skinSaveTimer)
   void saveSkin(currentSkin()).then(() => logout())
-  backToAuth()
+  backToName()
 })
 
-// Start: besteht noch eine Session (Cookie)? -> direkt in die Lobby, sonst Login.
-setAuthMode('login')
+// Start: Cookie bzw. Profil dieser IP -> direkt in die Lobby, sonst Namenswahl.
 showView('boot')
 const slowBoot = window.setTimeout(() => {
   bootEl.textContent = 'Server wacht auf … das kann kurz dauern'
@@ -570,11 +548,16 @@ void fetchMe().then((me) => {
   window.clearTimeout(slowBoot)
   if (me.state === 'ok') {
     enterLobby(me.identity, true)
-  } else {
-    showView('auth')
-    if (me.state === 'offline') {
-      authError.textContent = 'Server nicht erreichbar – bitte später erneut versuchen.'
-    }
+    return
+  }
+  showView('name')
+  if (me.state === 'banned') {
+    nameError.textContent = 'Du wurdest von diesem Server gesperrt.'
+    nameInput.disabled = true
+    nameSubmit.disabled = true
+  } else if (me.state === 'offline') {
+    nameError.textContent = 'Server nicht erreichbar – bitte später erneut versuchen.'
+    nameReload.hidden = false
   }
 })
 
@@ -805,7 +788,7 @@ function enterIdle(): void {
 
 playBtn.addEventListener('click', () => {
   if (!identity) {
-    backToAuth('Bitte zuerst anmelden.')
+    backToName('Bitte zuerst einen Namen wählen.')
     return
   }
   const who = identity
@@ -891,7 +874,7 @@ playBtn.addEventListener('click', () => {
         joinError.textContent = 'Du wurdest von diesem Server gesperrt.'
       } else if (msg.includes('INVALID_GUEST')) {
         // Session abgelaufen (z. B. Server-Neustart): zurueck zur Anmeldung.
-        backToAuth('Deine Sitzung ist abgelaufen – bitte erneut anmelden.')
+        backToName('Deine Sitzung ist abgelaufen – bitte Namen neu wählen.')
       } else {
         joinError.textContent = msg
       }

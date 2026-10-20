@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-/** Lobby ohne echten Server: /me liefert eine Konto-Session. */
+/** Lobby ohne echten Server: /me liefert das Profil dieser IP. */
 async function asLoggedInAccount(page: Page): Promise<void> {
   await page.route('**/me', (route) =>
     route.fulfill({
@@ -10,9 +10,7 @@ async function asLoggedInAccount(page: Page): Promise<void> {
       body: JSON.stringify({
         userId: '11111111-1111-4111-8111-111111111111',
         nickname: 'NeonNinja',
-        isGuest: false,
         skin: 7,
-        email: 'neo@example.com',
       }),
     }),
   )
@@ -52,41 +50,62 @@ test.describe('UI v3 (ohne Server)', () => {
     await expect(page.locator('#settings')).toBeHidden()
   })
 
-  test('Ohne Session: Login-Seite mit Tabs, Lobby bleibt versteckt', async ({ page }) => {
+  test('Neue IP: Namensfeld statt Login, Lobby bleibt versteckt', async ({ page }) => {
+    await page.route('**/me', (route) =>
+      route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        headers: { 'access-control-allow-origin': '*' },
+        body: JSON.stringify({ error: 'NO_SESSION' }),
+      }),
+    )
     await page.goto('/')
-    await expect(page.locator('#auth-card')).toBeVisible()
+    await expect(page.locator('#name-card')).toBeVisible()
     await expect(page.locator('#join-card')).toBeHidden()
-    await expect(page.locator('#auth-submit')).toHaveText('Anmelden')
-    await page.click('[data-mode="register"]')
-    await expect(page.locator('#auth-submit')).toHaveText('Konto erstellen')
-    await expect(page.locator('#auth-nickname')).toBeVisible()
-    await page.click('[data-mode="guest"]')
-    await expect(page.locator('#auth-email')).toBeHidden()
+    await expect(page.locator('#name-input')).toBeVisible()
+    await expect(page.locator('#auth-email')).toHaveCount(0)
+    await expect(page.locator('[data-mode]')).toHaveCount(0)
   })
 
-  test('Registrierung: ungültige Eingaben zeigen Fehler und senden nichts', async ({ page }) => {
+  test('Namenswahl: ungültiger Name zeigt Fehler und sendet nichts', async ({ page }) => {
     await page.goto('/')
-    await page.click('[data-mode="register"]')
-    await page.fill('#auth-email', 'keine-email')
-    await page.click('#auth-submit')
-    await expect(page.locator('#auth-error')).toContainText('E-Mail')
-    await page.fill('#auth-email', 'neo@example.com')
-    await page.fill('#auth-password', 'kurz')
-    await page.fill('#auth-nickname', 'a b')
-    await page.click('#auth-submit')
-    await expect(page.locator('#auth-error')).toContainText('Passwort')
-    await page.fill('#auth-password', 'sehr-geheim-123')
-    await page.click('#auth-submit')
-    await expect(page.locator('#auth-error')).toContainText('Spielername')
+    await page.fill('#name-input', 'a b')
+    await page.click('#name-submit')
+    await expect(page.locator('#name-error')).toContainText('Spielername')
     await expect(page.locator('#join-card')).toBeHidden()
   })
 
-  test('Lobby: Name aus dem Konto, kein Namensfeld, Match beitreten', async ({ page }) => {
+  test('Lobby: Name aus dem Profil, kein Namensfeld, Match beitreten', async ({ page }) => {
     await asLoggedInAccount(page)
     await page.goto('/')
     await expect(page.locator('#lobby-name')).toHaveText('NeonNinja')
-    await expect(page.locator('#lobby-badge')).toHaveText('Konto')
     await expect(page.locator('#play')).toHaveText('Match beitreten')
     await expect(page.locator('#nickname')).toHaveCount(0)
+  })
+
+  test('Lobby: Name nachträglich ändern', async ({ page }) => {
+    await asLoggedInAccount(page)
+    await page.route('**/me/name', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: {
+          'access-control-allow-origin': 'http://localhost:5173',
+          'access-control-allow-credentials': 'true',
+        },
+        body: JSON.stringify({ userId: '11111111-1111-4111-8111-111111111111', nickname: 'NeuerName', skin: 7 }),
+      }),
+    )
+    await page.goto('/')
+    await expect(page.locator('#rename-row')).toBeHidden()
+    await page.click('#rename-btn')
+    await expect(page.locator('#rename-input')).toHaveValue('NeonNinja')
+    await page.fill('#rename-input', 'a b')
+    await page.click('#rename-save')
+    await expect(page.locator('#rename-error')).toContainText('Spielername')
+    await page.fill('#rename-input', 'NeuerName')
+    await page.click('#rename-save')
+    await expect(page.locator('#lobby-name')).toHaveText('NeuerName')
+    await expect(page.locator('#rename-row')).toBeHidden()
   })
 })

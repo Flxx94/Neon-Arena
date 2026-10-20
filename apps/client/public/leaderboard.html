@@ -83,7 +83,15 @@
       td:last-child { border-radius: 0 12px 12px 0; }
       th:nth-child(-n + 2), td:nth-child(-n + 2) { text-align: left; }
       td:first-child { width: 52px; color: var(--muted); }
-      tr.me td { background: var(--panel-3); }
+      th button {
+        all: unset; cursor: pointer; padding: 4px 6px; margin: -4px -6px; border-radius: 8px;
+        text-transform: uppercase; letter-spacing: 1.8px; font: inherit;
+      }
+      th button:hover { color: var(--text); }
+      th button:focus-visible { outline: 3px solid var(--accent-2); }
+      th[aria-sort="descending"] button { color: var(--accent); }
+      th[aria-sort="descending"] button::after { content: " ▼"; }
+      td.sorted { font-weight: 900; color: var(--accent-2); }
       tbody tr { animation: rise 420ms var(--pop) both; }
       tbody tr:hover td { background: var(--panel-3); }
       td a { text-decoration: none; }
@@ -91,14 +99,10 @@
       .state { padding: 28px 12px; text-align: center; color: var(--muted); }
       .state.err { color: var(--bad); }
       .spinner { display: inline-block; width: 22px; height: 22px; margin-bottom: 8px; border: 4px solid var(--panel-3); border-top-color: var(--accent); border-radius: 50%; animation: spin 800ms linear infinite; }
-      #history { margin-top: 26px; }
-      #history h2 { margin: 0 0 10px; font-size: 20px; }
-      #history ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-      #history li { padding: 10px 14px; background: var(--panel); border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 3px 0 var(--ink); }
       @keyframes rise { from { opacity: 0; transform: translateY(18px) scale(0.97); } to { opacity: 1; transform: none; } }
       @keyframes spin { to { transform: rotate(360deg); } }
       @media (prefers-reduced-motion: reduce) { * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; } }
-      @media (max-width: 520px) { th:nth-child(5), td:nth-child(5) { display: none; } .step .pts { font-size: 18px; } }
+      @media (max-width: 520px) { th, td { padding-left: 6px; padding-right: 6px; } th { letter-spacing: 0.6px; } .step .pts { font-size: 18px; } }
     </style>
   </head>
   <body>
@@ -109,14 +113,22 @@
       </div>
       <div id="podium" class="podium" hidden></div>
       <div class="card"><div id="board" class="state"><span class="spinner"></span><br />Lade …</div></div>
-      <div id="history"></div>
     </main>
     <script type="module">
       const server = new URLSearchParams(location.search).get('server') ?? 'http://localhost:2567'
       const board = document.getElementById('board')
       const podium = document.getElementById('podium')
-      const historyEl = document.getElementById('history')
-      const userParam = new URLSearchParams(location.search).get('user')
+      const COLS = [
+        ['kills', 'Kills'],
+        ['kd', 'K/D'],
+        ['deaths', 'Deaths'],
+        ['matches', 'Matches'],
+        ['wins', 'Siege'],
+      ]
+      const KEYS = COLS.map((c) => c[0])
+      const labelOf = Object.fromEntries(COLS)
+      const asked = new URLSearchParams(location.search).get('sort')
+      let sort = KEYS.includes(asked) ? asked : 'kills'
       const el = (tag, cls, text) => {
         const n = document.createElement(tag)
         if (cls) n.className = cls
@@ -124,70 +136,66 @@
         return n
       }
       const stateMsg = (text, err) => {
+        podium.hidden = true
         board.className = 'state' + (err ? ' err' : '')
         board.replaceChildren(document.createTextNode(text))
       }
-      try {
-        const res = await fetch(`${server}/leaderboard`)
-        if (!res.ok) {
-          stateMsg('Bestenliste offline (keine Datenbank).', false)
-        } else {
-          const rows = await res.json()
-          if (rows.length === 0) {
-            stateMsg('Noch keine Ergebnisse – spiel die erste Runde!', false)
-          } else {
-            // Nur Text-Nodes: Nicknames sind Nutzereingaben (nie innerHTML).
-            rows.slice(0, 3).forEach((r, i) => {
-              const step = el('div', 'step')
-              step.append(el('div', 'medal', String(i + 1)), el('div', 'name', r.nickname), el('div', 'pts', String(r.score)), el('small', '', `${r.kills} Kills · ${r.matches} Matches`))
-              podium.appendChild(step)
-            })
-            podium.hidden = false
-            const table = el('table')
-            const head = el('tr')
-            ;['#', 'Spieler', 'Punkte', 'Kills', 'Matches'].forEach((h) => head.appendChild(el('th', '', h)))
-            const thead = el('thead')
-            thead.appendChild(head)
-            table.appendChild(thead)
-            const tbody = el('tbody')
-            rows.forEach((r, i) => {
-              const tr = el('tr')
-              if (r.userId === userParam) tr.className = 'me'
-              tr.style.animationDelay = `${Math.min(i, 12) * 30}ms`
-              const link = el('a', '', r.nickname)
-              link.href = `?user=${encodeURIComponent(r.userId)}`
-              const nameTd = el('td')
-              nameTd.appendChild(link)
-              tr.append(el('td', '', String(r.rank)), nameTd, el('td', '', String(r.score)), el('td', '', String(r.kills)), el('td', '', String(r.matches)))
-              tbody.appendChild(tr)
-            })
-            table.appendChild(tbody)
-            board.className = ''
-            board.replaceChildren(table)
-          }
+      const fmt = (key, v) => (key === 'kd' ? v.toFixed(2) : String(v))
+
+      function render(rows) {
+        // Nur Text-Nodes: Anzeigenamen sind Nutzereingaben (nie innerHTML).
+        podium.replaceChildren()
+        rows.slice(0, 3).forEach((r, i) => {
+          const step = el('div', 'step')
+          step.append(el('div', 'medal', String(i + 1)), el('div', 'name', r.nickname), el('div', 'pts', fmt(sort, r[sort])), el('small', '', labelOf[sort]))
+          podium.appendChild(step)
+        })
+        podium.hidden = false
+        const table = el('table')
+        const head = el('tr')
+        head.append(el('th', '', '#'), el('th', '', 'Spieler'))
+        for (const [key, label] of COLS) {
+          const th = el('th')
+          th.setAttribute('aria-sort', key === sort ? 'descending' : 'none')
+          const b = el('button', '', label)
+          b.type = 'button'
+          b.dataset.sort = key
+          b.addEventListener('click', () => load(key))
+          th.appendChild(b)
+          head.appendChild(th)
         }
-      } catch {
-        stateMsg('Server nicht erreichbar.', true)
+        const thead = el('thead')
+        thead.appendChild(head)
+        table.appendChild(thead)
+        const tbody = el('tbody')
+        rows.forEach((r, i) => {
+          const tr = el('tr')
+          tr.style.animationDelay = `${Math.min(i, 12) * 30}ms`
+          tr.append(el('td', '', String(r.rank)), el('td', '', r.nickname))
+          for (const key of KEYS) tr.appendChild(el('td', key === sort ? 'sorted' : '', fmt(key, r[key])))
+          tbody.appendChild(tr)
+        })
+        table.appendChild(tbody)
+        board.className = ''
+        board.replaceChildren(table)
       }
-      if (userParam) {
+
+      async function load(next) {
+        sort = next
         try {
-          const hres = await fetch(`${server}/history/${encodeURIComponent(userParam)}`)
-          if (hres.ok) {
-            const matches = await hres.json()
-            const h = el('div')
-            h.appendChild(el('h2', '', `Letzte ${matches.length} Matches`))
-            const ul = el('ul')
-            for (const m of matches) {
-              const me = m.players.find((p) => p.userId === userParam)
-              ul.appendChild(el('li', '', `${new Date(m.endedAt).toLocaleString()} – Score ${me?.score ?? 0} (${me?.kills ?? 0}/${me?.deaths ?? 0})`))
-            }
-            h.appendChild(ul)
-            historyEl.replaceChildren(h)
-          }
+          history.replaceState(null, '', `?${new URLSearchParams({ ...(new URLSearchParams(location.search).get('server') ? { server } : {}), sort })}`)
+        } catch {}
+        try {
+          const res = await fetch(`${server}/leaderboard?sort=${encodeURIComponent(sort)}`)
+          if (!res.ok) return stateMsg('Bestenliste offline (keine Datenbank).', false)
+          const rows = await res.json()
+          if (rows.length === 0) return stateMsg('Noch keine Ergebnisse – spiel die erste Runde!', false)
+          render(rows)
         } catch {
-          /* Verlauf optional */
+          stateMsg('Server nicht erreichbar.', true)
         }
       }
+      await load(sort)
     </script>
   </body>
 </html>

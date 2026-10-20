@@ -8,18 +8,8 @@ export const nicknameSchema = z
   .max(16)
   .regex(/^[a-zA-Z0-9_-]+$/)
 
-/** Account-Anmeldung (Email + Passwort). Email wird normalisiert (trim + lowercase). */
-export const emailSchema = z.string().trim().toLowerCase().email().max(254)
-/** Passwort: 8-128 Zeichen (scrypt hasht beliebige Laenge; Obergrenze gegen Missbrauch). */
-export const passwordSchema = z.string().min(8).max(128)
-
-export const registerSchema = z
-  .object({ email: emailSchema, password: passwordSchema, nickname: nicknameSchema })
-  .strip()
-
-export const loginSchema = z
-  .object({ email: emailSchema, password: z.string().min(1).max(128) })
-  .strip()
+/** Namenswahl / Umbenennen (Profil pro IP): nur der Anzeigename. */
+export const profileNameSchema = z.object({ nickname: nicknameSchema }).strip()
 
 /** Lobby: gewaehlter Look (Modell + Farbe) wird am Account gespeichert. */
 export const skinUpdateSchema = z
@@ -110,7 +100,5 @@ export const adminUnbanSchema = z.object({ ip: z.string().min(2).max(64) }).stri
 
 export type AdminPlayerInput = z.infer<typeof adminPlayerSchema>
 export type AdminRoundInput = z.infer<typeof adminRoundSchema>
-export type RegisterInput = z.infer<typeof registerSchema>
-export type LoginInput = z.infer<typeof loginSchema>
 export type JoinInput = z.infer<typeof joinSchema>
 export type ValidatedInput = z.infer<typeof inputSchema>

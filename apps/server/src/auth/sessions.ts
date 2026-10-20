@@ -4,13 +4,9 @@ export interface Session {
   userId: string
   nickname: string
   createdAt: number
-  /** Default true (Gast). Konten: false. */
-  isGuest?: boolean
   /** Zuletzt gewaehlter Look (Modell + Farbe), nur Kosmetik. */
   skin?: number
-  /** Nur Konten. */
-  email?: string
-  /** Lebensdauer in Sekunden (Default 24 h; Konten laenger). */
+  /** Lebensdauer in Sekunden (Default 24 h; Profile laenger). */
   ttlSeconds?: number
 }
 

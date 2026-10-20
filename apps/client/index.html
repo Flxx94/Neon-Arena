@@ -140,29 +140,16 @@
 
         <p id="boot" class="chip" role="status">Verbinde mit Server …</p>
 
-        <!-- Anmelden / Registrieren / Gast -->
-        <form id="auth-card" class="card ui" autocomplete="on" novalidate hidden>
-          <div class="seg auth-tabs" id="auth-tabs" role="tablist" aria-label="Zugang">
-            <button type="button" role="tab" data-mode="login" aria-selected="true">Anmelden</button>
-            <button type="button" role="tab" data-mode="register" aria-selected="false">Registrieren</button>
-            <button type="button" role="tab" data-mode="guest" aria-selected="false">Gast</button>
-          </div>
-          <label class="field" data-for="login register">
-            <span>E-Mail</span>
-            <input id="auth-email" class="input" type="email" inputmode="email" maxlength="254" placeholder="du@beispiel.de" autocomplete="email" autocapitalize="off" spellcheck="false" />
+        <!-- Erste Namenswahl dieser IP -->
+        <form id="name-card" class="card ui" autocomplete="off" novalidate hidden>
+          <label class="field">
+            <span>Wie willst du heißen?</span>
+            <input id="name-input" class="input" maxlength="16" placeholder="z. B. NeonNinja" autocomplete="nickname" autocapitalize="off" spellcheck="false" />
           </label>
-          <label class="field" data-for="register guest" hidden>
-            <span>Spielername</span>
-            <input id="auth-nickname" class="input" maxlength="16" placeholder="z. B. NeonNinja" autocomplete="nickname" autocapitalize="off" spellcheck="false" />
-          </label>
-          <label class="field" data-for="login register">
-            <span>Passwort</span>
-            <input id="auth-password" class="input" type="password" maxlength="128" placeholder="mind. 8 Zeichen" autocomplete="current-password" />
-          </label>
-          <p id="auth-hint" class="auth-hint"></p>
-          <p id="auth-error" role="alert"></p>
-          <button id="auth-submit" class="btn primary" type="submit">Anmelden</button>
-          <button id="auth-reload" class="btn" type="button" hidden>Neu laden</button>
+          <p class="auth-hint">Dein Name wird mit deiner IP-Adresse gespeichert und in der Bestenliste angezeigt. Du kannst ihn später in der Lobby ändern.</p>
+          <p id="name-error" role="alert"></p>
+          <button id="name-submit" class="btn primary" type="submit">Los geht's</button>
+          <button id="name-reload" class="btn" type="button" hidden>Neu laden</button>
           <a class="toplink" href="/leaderboard.html" target="_blank" rel="noopener">
             <svg aria-hidden="true"><use href="#i-trophy" /></svg> Bestenliste
           </a>
@@ -173,10 +160,16 @@
           <div class="lobby-head">
             <div class="who">
               <span id="lobby-name" class="who-name">Spieler</span>
-              <span id="lobby-badge" class="badge">Konto</span>
+              <button id="rename-btn" class="link-btn" type="button">Name ändern</button>
             </div>
-            <button id="logout" class="link-btn" type="button">Abmelden</button>
+            <button id="logout" class="link-btn" type="button" title="Anderes Profil auf dieser IP anlegen">Nicht du?</button>
           </div>
+          <div id="rename-row" class="rename-row" hidden>
+            <input id="rename-input" class="input" maxlength="16" placeholder="Neuer Name" aria-label="Neuer Name" autocomplete="off" autocapitalize="off" spellcheck="false" />
+            <button id="rename-save" class="btn primary" type="button">Speichern</button>
+            <button id="rename-cancel" class="btn" type="button">Abbrechen</button>
+          </div>
+          <p id="rename-error" role="alert"></p>
           <div class="picker">
             <button id="model-prev" class="icon-btn small" type="button" aria-label="Vorherige Figur">
               <svg aria-hidden="true"><use href="#i-left" /></svg>

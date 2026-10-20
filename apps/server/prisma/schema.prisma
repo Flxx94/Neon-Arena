@@ -7,7 +7,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Gaeste (M4-02) und Accounts (Email + Passwort, ADR-005). Gaeste haben email/passwordHash = NULL.
+// Spielerprofil pro IP (ADR-014): nickname = Anzeigename, ip = normalisierte Adresse (personenbezogen!).
+// email/passwordHash/isGuest sind Altlasten der entfernten Konten und bleiben der Kompatibilitaet halber.
 model User {
   id           String        @id @default(uuid())
   nickname     String
@@ -15,8 +16,11 @@ model User {
   email        String?       @unique
   passwordHash String?
   skin         Int           @default(0)
+  ip           String?
   createdAt    DateTime      @default(now())
   matches      MatchPlayer[]
+
+  @@index([ip])
 }
 
 model Match {

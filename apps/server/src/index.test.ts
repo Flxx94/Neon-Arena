@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { AddressInfo } from 'net'
-import { MemoryAccountStore, setAccountStore } from './auth/accounts.js'
+import { MemoryProfileStore, setProfileStore } from './auth/profiles.js'
+import { MemoryBanStore, setBanStore } from './db/bans.js'
 import { MemorySessionStore, setSessionStore } from './auth/sessions.js'
 import { createApp } from './index.js'
 import { MemoryRateStore, setRateStore } from './ratelimit/limiter.js'
@@ -16,7 +17,8 @@ async function listen() {
 beforeEach(() => {
   setSessionStore(new MemorySessionStore())
   setRateStore(new MemoryRateStore())
-  setAccountStore(new MemoryAccountStore())
+  setProfileStore(new MemoryProfileStore())
+  setBanStore(new MemoryBanStore())
 })
 
 describe('GET /health (M0-05)', () => {
@@ -33,153 +35,129 @@ describe('GET /health (M0-05)', () => {
   })
 })
 
-describe('auth + leaderboard routen (M4)', () => {
-  it('POST /auth/guest -> Cookie, GET /me behaelt Identitaet', async () => {
-    const { port, close } = await listen()
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/auth/guest`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ nickname: 'Reload' }),
-      })
-      expect(res.status).toBe(200)
-      const setCookie = res.headers.get('set-cookie') ?? ''
-      expect(setCookie).toContain('na_guest=')
-      const cookie = setCookie.split(';')[0]!
-      const body = (await res.json()) as { userId: string; nickname: string }
-      expect(body.nickname).toBe('Reload')
-
-      const me = await fetch(`http://127.0.0.1:${port}/me`, { headers: { cookie } })
-      expect(me.status).toBe(200)
-      expect(await me.json()).toEqual(body)
-    } finally {
-      close()
-    }
-  })
-
-  it('POST /auth/guest mit 6x schnell -> 429 (M4-05)', async () => {
-    const { port, close } = await listen()
-    try {
-      let last = 0
-      for (let i = 0; i < 6; i++) {
-        const res = await fetch(`http://127.0.0.1:${port}/auth/guest`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ nickname: `Flood${i}` }),
-        })
-        last = res.status
-        await res.text()
-      }
-      expect(last).toBe(429)
-    } finally {
-      close()
-    }
-  })
-
-  it('GET /leaderboard ohne DB -> 503', async () => {
-    const { port, close } = await listen()
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/leaderboard`)
-      // NODE_ENV=test -> DB deaktiviert.
-      expect(res.status).toBe(503)
-    } finally {
-      close()
-    }
-  })
-})
-
-describe('Konten: register / login / logout / skin (ADR-005)', () => {
+describe('Profile pro IP (ADR-014)', () => {
   const json = { 'content-type': 'application/json' }
-  const account = { email: 'Spieler@Example.com', password: 'sehr-geheim-123', nickname: 'Spieler_1' }
 
-  it('Registrieren -> Cookie + /me; Logout loescht die Session', async () => {
+  it('neue IP: /me -> 401; Namenswahl -> Cookie; Reload ueber Cookie UND ueber IP (ohne Cookie)', async () => {
     const { port, close } = await listen()
     const base = `http://127.0.0.1:${port}`
     try {
-      const res = await fetch(`${base}/auth/register`, { method: 'POST', headers: json, body: JSON.stringify(account) })
+      expect((await fetch(`${base}/me`)).status).toBe(401)
+      const res = await fetch(`${base}/me`, { method: 'POST', headers: json, body: JSON.stringify({ nickname: 'Neo_1' }) })
       expect(res.status).toBe(201)
       const cookie = (res.headers.get('set-cookie') ?? '').split(';')[0]!
       expect(cookie).toContain('na_guest=')
-      const body = (await res.json()) as Record<string, unknown>
-      expect(body).toMatchObject({ nickname: 'Spieler_1', isGuest: false, email: 'spieler@example.com' })
-      expect(JSON.stringify(body)).not.toContain('sehr-geheim')
+      const body = (await res.json()) as { userId: string; nickname: string }
+      expect(body.nickname).toBe('Neo_1')
 
-      const me = await fetch(`${base}/me`, { headers: { cookie } })
-      expect(me.status).toBe(200)
-      expect(await me.json()).toEqual(body)
-
-      const out = await fetch(`${base}/auth/logout`, { method: 'POST', headers: { cookie } })
-      expect(out.status).toBe(204)
-      expect(out.headers.get('set-cookie') ?? '').toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/)
-      expect((await fetch(`${base}/me`, { headers: { cookie } })).status).toBe(401)
+      const viaCookie = await fetch(`${base}/me`, { headers: { cookie } })
+      expect(await viaCookie.json()).toEqual(body)
+      // Ohne Cookie (z.B. Cookie geloescht): gleiche IP -> gleiches Profil.
+      const viaIp = await fetch(`${base}/me`)
+      expect(viaIp.status).toBe(200)
+      expect(await viaIp.json()).toEqual(body)
+      expect(viaIp.headers.get('set-cookie') ?? '').toContain('na_guest=')
     } finally {
       close()
     }
   })
 
-  it('doppelte Email -> 409, ungueltige Eingabe -> 400, Passwort wird nie zurueckgegeben', async () => {
+  it('"Nicht du?": Logout + /me?auto=0 -> 401, neuer Name = neues Profil', async () => {
     const { port, close } = await listen()
     const base = `http://127.0.0.1:${port}`
     try {
-      const post = (b: unknown) => fetch(`${base}/auth/register`, { method: 'POST', headers: json, body: JSON.stringify(b) })
-      expect((await post(account)).status).toBe(201)
-      const dup = await post({ ...account, nickname: 'Anderer' })
-      expect(dup.status).toBe(409)
-      expect(await dup.json()).toEqual({ error: 'EMAIL_TAKEN' })
-      const bad = await post({ ...account, email: 'x', password: '1' })
+      const a = await fetch(`${base}/me`, { method: 'POST', headers: json, body: JSON.stringify({ nickname: 'Alt' }) })
+      const cookie = (a.headers.get('set-cookie') ?? '').split(';')[0]!
+      const old = (await a.json()) as { userId: string }
+      expect((await fetch(`${base}/auth/logout`, { method: 'POST', headers: { cookie } })).status).toBe(204)
+      expect((await fetch(`${base}/me?auto=0`)).status).toBe(401)
+      const b = await fetch(`${base}/me`, { method: 'POST', headers: json, body: JSON.stringify({ nickname: 'Neu' }) })
+      const fresh = (await b.json()) as { userId: string; nickname: string }
+      expect(fresh.userId).not.toBe(old.userId)
+      expect(((await (await fetch(`${base}/me`)).json()) as { nickname: string }).nickname).toBe('Neu')
+    } finally {
+      close()
+    }
+  })
+
+  it('Namenswahl: ungueltig -> 400, Flood -> 429', async () => {
+    const { port, close } = await listen()
+    const base = `http://127.0.0.1:${port}`
+    try {
+      const bad = await fetch(`${base}/me`, { method: 'POST', headers: json, body: JSON.stringify({ nickname: '<script>' }) })
       expect(bad.status).toBe(400)
-    } finally {
-      close()
-    }
-  })
-
-  it('Login: richtig -> 200 + Skin aus dem Konto; falsch -> 401 generisch', async () => {
-    const { port, close } = await listen()
-    const base = `http://127.0.0.1:${port}`
-    try {
-      const reg = await fetch(`${base}/auth/register`, { method: 'POST', headers: json, body: JSON.stringify(account) })
-      const cookie = (reg.headers.get('set-cookie') ?? '').split(';')[0]!
-      const skinRes = await fetch(`${base}/me/skin`, { method: 'PATCH', headers: { ...json, cookie }, body: JSON.stringify({ skin: 17 }) })
-      expect(skinRes.status).toBe(200)
-
-      const ok = await fetch(`${base}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email: 'spieler@example.com', password: account.password }) })
-      expect(ok.status).toBe(200)
-      expect(await ok.json()).toMatchObject({ nickname: 'Spieler_1', skin: 17, isGuest: false })
-
-      const wrong = await fetch(`${base}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email: 'spieler@example.com', password: 'falsch-falsch' }) })
-      expect(wrong.status).toBe(401)
-      expect(await wrong.json()).toEqual({ error: 'INVALID_CREDENTIALS' })
-    } finally {
-      close()
-    }
-  })
-
-  it('PATCH /me/skin: ohne Session 401, ungueltiger Skin 400', async () => {
-    const { port, close } = await listen()
-    const base = `http://127.0.0.1:${port}`
-    try {
-      const anon = await fetch(`${base}/me/skin`, { method: 'PATCH', headers: json, body: JSON.stringify({ skin: 1 }) })
-      expect(anon.status).toBe(401)
-      const reg = await fetch(`${base}/auth/register`, { method: 'POST', headers: json, body: JSON.stringify(account) })
-      const cookie = (reg.headers.get('set-cookie') ?? '').split(';')[0]!
-      const bad = await fetch(`${base}/me/skin`, { method: 'PATCH', headers: { ...json, cookie }, body: JSON.stringify({ skin: 9999 }) })
-      expect(bad.status).toBe(400)
-    } finally {
-      close()
-    }
-  })
-
-  it('Login-Flood pro Email -> 429', async () => {
-    const { port, close } = await listen()
-    const base = `http://127.0.0.1:${port}`
-    try {
       let last = 0
-      for (let i = 0; i < 10; i++) {
-        const r = await fetch(`${base}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email: 'opfer@example.com', password: `falsch-${i}-xxxx` }) })
+      for (let i = 0; i < 6; i++) {
+        const r = await fetch(`${base}/me`, { method: 'POST', headers: json, body: JSON.stringify({ nickname: `Flood${i}` }) })
         last = r.status
         await r.text()
       }
       expect(last).toBe(429)
+    } finally {
+      close()
+    }
+  })
+
+  it('Umbenennen: PATCH /me/name aendert Name in Session + Profil, ohne Session 401, ungueltig 400', async () => {
+    const { port, close } = await listen()
+    const base = `http://127.0.0.1:${port}`
+    try {
+      expect((await fetch(`${base}/me/name`, { method: 'PATCH', headers: json, body: JSON.stringify({ nickname: 'X' }) })).status).toBe(401)
+      const a = await fetch(`${base}/me`, { method: 'POST', headers: json, body: JSON.stringify({ nickname: 'Erst' }) })
+      const cookie = (a.headers.get('set-cookie') ?? '').split(';')[0]!
+      const r = await fetch(`${base}/me/name`, { method: 'PATCH', headers: { ...json, cookie }, body: JSON.stringify({ nickname: 'Zweit' }) })
+      expect(r.status).toBe(200)
+      expect(((await r.json()) as { nickname: string }).nickname).toBe('Zweit')
+      expect(((await (await fetch(`${base}/me`, { headers: { cookie } })).json()) as { nickname: string }).nickname).toBe('Zweit')
+      expect(((await (await fetch(`${base}/me?auto=1`)).json()) as { nickname: string }).nickname).toBe('Zweit')
+      const bad = await fetch(`${base}/me/name`, { method: 'PATCH', headers: { ...json, cookie }, body: JSON.stringify({ nickname: 'a b' }) })
+      expect(bad.status).toBe(400)
+    } finally {
+      close()
+    }
+  })
+
+  it('Skin wird am Profil gemerkt; ungueltiger Skin -> 400; ohne Session 401', async () => {
+    const { port, close } = await listen()
+    const base = `http://127.0.0.1:${port}`
+    try {
+      expect((await fetch(`${base}/me/skin`, { method: 'PATCH', headers: json, body: JSON.stringify({ skin: 1 }) })).status).toBe(401)
+      const a = await fetch(`${base}/me`, { method: 'POST', headers: json, body: JSON.stringify({ nickname: 'Look' }) })
+      const cookie = (a.headers.get('set-cookie') ?? '').split(';')[0]!
+      expect((await fetch(`${base}/me/skin`, { method: 'PATCH', headers: { ...json, cookie }, body: JSON.stringify({ skin: 9999 }) })).status).toBe(400)
+      expect((await fetch(`${base}/me/skin`, { method: 'PATCH', headers: { ...json, cookie }, body: JSON.stringify({ skin: 17 }) })).status).toBe(200)
+      expect(((await (await fetch(`${base}/me`)).json()) as { skin: number }).skin).toBe(17)
+    } finally {
+      close()
+    }
+  })
+
+  it('gebannte IP: /me und Namenswahl -> 403 BANNED', async () => {
+    const { port, close } = await listen()
+    const base = `http://127.0.0.1:${port}`
+    try {
+      const bans = new MemoryBanStore()
+      await bans.add({ ip: '9.9.9.9', nickname: 'Boese', at: Date.now() })
+      setBanStore(bans)
+      const h = { 'x-forwarded-for': '9.9.9.9' }
+      expect((await fetch(`${base}/me`, { headers: h })).status).toBe(403)
+      const r = await fetch(`${base}/me`, { method: 'POST', headers: { ...json, ...h }, body: JSON.stringify({ nickname: 'Boese' }) })
+      expect(r.status).toBe(403)
+      expect(await r.json()).toEqual({ error: 'BANNED' })
+    } finally {
+      close()
+    }
+  })
+
+  it('alte Konto-Routen sind weg; Leaderboard ohne DB -> 503', async () => {
+    const { port, close } = await listen()
+    const base = `http://127.0.0.1:${port}`
+    try {
+      for (const path of ['/auth/register', '/auth/login', '/auth/guest']) {
+        expect((await fetch(`${base}${path}`, { method: 'POST', headers: json, body: '{}' })).status).toBe(404)
+      }
+      expect((await fetch(`${base}/leaderboard?sort=kd`)).status).toBe(503)
+      expect((await fetch(`${base}/history/x`)).status).toBe(404)
     } finally {
       close()
     }

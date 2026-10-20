@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { randomUUID } from 'crypto'
 import {
-  ACCOUNT_TTL_SECONDS,
+  PROFILE_TTL_SECONDS,
   checkGuestSession,
   clearSessionCookie,
   issueGuest,
@@ -44,22 +44,16 @@ describe('guest auth (M4-02)', () => {
   })
 })
 
-describe('Konto-Session (ADR-005)', () => {
-  it('Konto-Identitaet bleibt beim Verify erhalten (isGuest=false, Email, Skin, 7 Tage)', async () => {
+describe('Profil-Session (ADR-014)', () => {
+  it('Identitaet bleibt beim Verify erhalten (Skin, 30 Tage), Logout-Cookie ist abgelaufen', async () => {
     const { identity, cookie } = await issueSession(
-      { userId: randomUUID(), nickname: 'Konto', isGuest: false, skin: 13, email: 'k@example.com' },
-      ACCOUNT_TTL_SECONDS,
+      { userId: randomUUID(), nickname: 'Profil', skin: 13 },
+      PROFILE_TTL_SECONDS,
     )
     expect(cookie).toContain('HttpOnly')
-    expect(cookie).toContain(`Max-Age=${ACCOUNT_TTL_SECONDS}`)
+    expect(cookie).toContain(`Max-Age=${PROFILE_TTL_SECONDS}`)
     const token = cookie.split(';')[0]!.split('=')[1]!
     expect(await verifyGuest(token)).toEqual(identity)
-    expect(identity.isGuest).toBe(false)
-  })
-
-  it('Gast ist isGuest=true, Logout-Cookie ist abgelaufen', async () => {
-    const { identity } = await issueGuest('Gast_1')
-    expect(identity.isGuest).toBe(true)
     expect(clearSessionCookie()).toMatch(/Max-Age=0/)
   })
 })
