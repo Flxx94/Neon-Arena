@@ -3,20 +3,20 @@ import { parse as parseCookie } from 'cookie'
 import cors from 'cors'
 import { Server as GameServer } from '@colyseus/core'
 import { WebSocketTransport } from '@colyseus/ws-transport'
-import express, { type Express, type Request, type Response } from 'express'
+import express, { type Express, type Request } from 'express'
 import helmet from 'helmet'
-import { skinUpdateSchema } from '@neon-arena/shared'
-import { getAccountStore } from './auth/accounts.js'
+import { profileNameSchema, skinUpdateSchema } from '@neon-arena/shared'
 import {
-  ACCOUNT_TTL_SECONDS,
   GUEST_COOKIE,
+  PROFILE_TTL_SECONDS,
   clearSessionCookie,
-  issueGuest,
   issueSession,
   verifyGuest,
 } from './auth/guest.js'
-import { loginAccount, registerAccount } from './auth/service.js'
+import { getProfileStore, type Profile } from './auth/profiles.js'
 import { RedisSessionStore, getSessionStore, setSessionStore } from './auth/sessions.js'
+import { getBanStore } from './db/bans.js'
+import { buildBoard, parseSort, type StatRow } from './db/leaderboard.js'
 import { getDb } from './db/prisma.js'
 import { getRedis } from './db/redis.js'
 import { RedisRateStore, checkLimit, getRateStore, setRateStore } from './ratelimit/limiter.js'
@@ -31,10 +31,20 @@ const startedAt = Date.now()
 // M0-Stub: echte Werte kommen mit Sim (M2) + Redis (M3/M4).
 const metrics = { rooms: 0, players: 0, tickMsP95: 0 }
 
+/** Wie `clientIp` im Raum: hinter dem Proxy der LETZTE X-Forwarded-For-Eintrag (TRUST_PROXY=false: Socket). */
 function httpIp(req: Request): string {
-  const fwd = req.headers['x-forwarded-for']
-  const first = Array.isArray(fwd) ? fwd[0] : fwd?.split(',')[0]?.trim()
-  return first ?? req.socket.remoteAddress ?? 'unknown'
+  if (process.env.TRUST_PROXY !== 'false') {
+    const fwd = req.headers['x-forwarded-for']
+    const raw = Array.isArray(fwd) ? fwd.join(',') : fwd
+    const last = raw?.split(',').at(-1)?.trim()
+    if (last) return last
+  }
+  return req.socket.remoteAddress ?? 'unknown'
+}
+
+async function sessionFor(p: Profile): Promise<string> {
+  const { cookie } = await issueSession({ userId: p.id, nickname: p.nickname, skin: p.skin }, PROFILE_TTL_SECONDS)
+  return cookie
 }
 
 export function createApp(): Express {
@@ -51,78 +61,83 @@ export function createApp(): Express {
     res.json({ ...metrics, tickMsP95: tickMsP95() })
   })
 
-  // M4-02: Gast-Identitaet (JWT in httpOnly-Cookie). Limit 5/min/IP (M4-05).
-  app.post('/auth/guest', async (req, res) => {
-    if (!(await checkLimit(getRateStore(), `http:guest:${httpIp(req)}`, 5, 60_000))) {
+  // Profil pro IP (ADR-014): Reload/Neustart behaelt die Identitaet.
+  // Cookie gilt zuerst; ohne Cookie wird (wenn `?auto=0` fehlt) das neueste Profil dieser IP geladen.
+  app.get('/me', async (req, res) => {
+    const ip = httpIp(req)
+    if (await (await getBanStore()).isBanned(ip)) {
+      res.status(403).json({ error: 'BANNED' })
+      return
+    }
+    const token = parseCookie(req.headers.cookie ?? '')[GUEST_COOKIE]
+    const identity = token ? await verifyGuest(token) : null
+    if (identity) {
+      res.json(identity)
+      return
+    }
+    if (req.query.auto !== '0') {
+      const profile = await getProfileStore().findByIp(ip)
+      if (profile) {
+        res.setHeader('Set-Cookie', await sessionFor(profile))
+        res.json({ userId: profile.id, nickname: profile.nickname, skin: profile.skin })
+        return
+      }
+    }
+    res.status(401).json({ error: token ? 'INVALID_SESSION' : 'NO_SESSION' })
+  })
+
+  // Erste Namenswahl dieser IP (oder "Nicht du?" -> neues Profil). Limit 5/min/IP.
+  app.post('/me', async (req, res) => {
+    const ip = httpIp(req)
+    if (await (await getBanStore()).isBanned(ip)) {
+      res.status(403).json({ error: 'BANNED' })
+      return
+    }
+    if (!(await checkLimit(getRateStore(), `http:profile:${ip}`, 5, 60_000))) {
       res.status(429).json({ error: 'RATE_LIMITED' })
       return
     }
-    try {
-      const { identity, cookie } = await issueGuest(String(req.body?.nickname ?? ''))
-      res.setHeader('Set-Cookie', cookie)
-      res.json(identity)
-    } catch {
+    const parsed = profileNameSchema.safeParse(req.body)
+    if (!parsed.success) {
       res.status(400).json({ error: 'INVALID_NICKNAME' })
-    }
-  })
-
-  // ADR-005: Konto registrieren (Email + Passwort + Spielername) -> Cookie-Session.
-  app.post('/auth/register', async (req, res) => {
-    if (!(await checkLimit(getRateStore(), `http:register:${httpIp(req)}`, 10, 10 * 60_000))) {
-      res.status(429).json({ error: 'RATE_LIMITED' })
       return
     }
     try {
-      const result = await registerAccount(req.body, getAccountStore())
-      if (!result.ok) {
-        res.status(result.status).json({ error: result.error })
-        return
-      }
-      const a = result.account
-      const { identity, cookie } = await issueSession(
-        { userId: a.id, nickname: a.nickname, isGuest: false, skin: a.skin, email: a.email },
-        ACCOUNT_TTL_SECONDS,
-      )
-      res.setHeader('Set-Cookie', cookie)
-      res.status(201).json(identity)
+      const profile = await getProfileStore().create(parsed.data.nickname, ip)
+      res.setHeader('Set-Cookie', await sessionFor(profile))
+      res.status(201).json({ userId: profile.id, nickname: profile.nickname, skin: profile.skin })
     } catch (err) {
-      console.error('[auth] register failed:', err)
+      console.error('[profile] create failed:', err)
       res.status(500).json({ error: 'SERVER_ERROR' })
     }
   })
 
-  // ADR-005: Login. Limit pro IP (20/min) UND pro Email (8 / 5 min) gegen Passwort-Raten.
-  app.post('/auth/login', async (req, res) => {
-    const store = getRateStore()
-    const email =
-      typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase().slice(0, 254) : ''
-    if (
-      !(await checkLimit(store, `http:login:${httpIp(req)}`, 20, 60_000)) ||
-      (email && !(await checkLimit(store, `http:login:email:${email}`, 8, 5 * 60_000)))
-    ) {
+  // Umbenennen in der Lobby (gilt ab dem naechsten Beitritt; Leaderboard zeigt sofort den neuen Namen).
+  app.patch('/me/name', async (req, res) => {
+    const token = parseCookie(req.headers.cookie ?? '')[GUEST_COOKIE]
+    const identity = token ? await verifyGuest(token) : null
+    if (!identity) {
+      res.status(401).json({ error: 'NO_SESSION' })
+      return
+    }
+    if (!(await checkLimit(getRateStore(), `http:rename:${identity.userId}`, 10, 60_000))) {
       res.status(429).json({ error: 'RATE_LIMITED' })
       return
     }
-    try {
-      const result = await loginAccount(req.body, getAccountStore())
-      if (!result.ok) {
-        res.status(result.status).json({ error: result.error })
-        return
-      }
-      const a = result.account
-      const { identity, cookie } = await issueSession(
-        { userId: a.id, nickname: a.nickname, isGuest: false, skin: a.skin, email: a.email },
-        ACCOUNT_TTL_SECONDS,
-      )
-      res.setHeader('Set-Cookie', cookie)
-      res.json(identity)
-    } catch (err) {
-      console.error('[auth] login failed:', err)
-      res.status(500).json({ error: 'SERVER_ERROR' })
+    const parsed = profileNameSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({ error: 'INVALID_NICKNAME' })
+      return
     }
+    const nickname = parsed.data.nickname
+    await getProfileStore().rename(identity.userId, nickname)
+    const sessions = getSessionStore()
+    const session = await sessions.get(identity.userId)
+    if (session) await sessions.create({ ...session, nickname })
+    res.json({ ...identity, nickname })
   })
 
-  // ADR-005: Logout: Session verwerfen + Cookie loeschen (immer 204, auch ohne Session).
+  // "Nicht du?": Session verwerfen + Cookie loeschen (immer 204, auch ohne Session).
   app.post('/auth/logout', async (req, res) => {
     const token = parseCookie(req.headers.cookie ?? '')[GUEST_COOKIE]
     if (token) {
@@ -133,7 +148,7 @@ export function createApp(): Express {
     res.status(204).end()
   })
 
-  // Lobby: gewaehlten Look (Modell + Farbe) merken (Konto: dauerhaft, Gast: nur Session).
+  // Lobby: gewaehlten Look (Modell + Farbe) am Profil merken.
   app.patch('/me/skin', async (req, res) => {
     const token = parseCookie(req.headers.cookie ?? '')[GUEST_COOKIE]
     const identity = token ? await verifyGuest(token) : null
@@ -149,74 +164,35 @@ export function createApp(): Express {
     const sessions = getSessionStore()
     const session = await sessions.get(identity.userId)
     if (session) await sessions.create({ ...session, skin: parsed.data.skin })
-    if (!identity.isGuest) await getAccountStore().setSkin(identity.userId, parsed.data.skin)
+    await getProfileStore().setSkin(identity.userId, parsed.data.skin)
     res.json({ ...identity, skin: parsed.data.skin })
   })
 
-  // M4-02: Reload behaelt Identitaet (Cookie -> Session).
-  app.get('/me', async (req, res) => {
-    const token = parseCookie(req.headers.cookie ?? '')[GUEST_COOKIE]
-    if (!token) {
-      res.status(401).json({ error: 'NO_SESSION' })
-      return
-    }
-    const identity = await verifyGuest(token)
-    if (!identity) {
-      res.status(401).json({ error: 'INVALID_SESSION' })
-      return
-    }
-    res.json(identity)
-  })
-
-  // M4-04: Leaderboard Top 100 (summierte Scores).
-  app.get('/leaderboard', async (_req, res) => {
+  // Bestenliste Top 100, sortierbar: ?sort=kills|kd|deaths|matches|wins. Nur Anzeigename + Zahlen.
+  app.get('/leaderboard', async (req, res) => {
     const db = getDb()
     if (!db) {
       res.status(503).json({ error: 'DB_UNAVAILABLE' })
       return
     }
-    const grouped = await db.matchPlayer.groupBy({
-      by: ['userId'],
-      _sum: { score: true, kills: true },
-      _count: { _all: true },
-      orderBy: { _sum: { score: 'desc' } },
-      take: 100,
+    const [grouped, wonBy] = await Promise.all([
+      db.matchPlayer.groupBy({ by: ['userId'], _sum: { kills: true, deaths: true }, _count: { _all: true } }),
+      db.match.groupBy({ by: ['winnerId'], where: { winnerId: { not: null } }, _count: { _all: true } }),
+    ])
+    const users = await db.user.findMany({
+      where: { id: { in: grouped.map((g) => g.userId) } },
+      select: { id: true, nickname: true },
     })
-    const users = await db.user.findMany({ where: { id: { in: grouped.map((g) => g.userId) } } })
-    const nicknames = new Map(users.map((u) => [u.id, u.nickname]))
-    res.json(
-      grouped.map((g, i) => ({
-        rank: i + 1,
-        userId: g.userId,
-        nickname: nicknames.get(g.userId) ?? '?',
-        score: g._sum.score ?? 0,
-        kills: g._sum.kills ?? 0,
-        matches: g._count._all,
-      })),
-    )
-  })
-
-  // M4-04: Match-Historie pro Spieler (letzte 20).
-  app.get('/history/:userId', async (req: Request<{ userId: string }>, res: Response) => {
-    const db = getDb()
-    if (!db) {
-      res.status(503).json({ error: 'DB_UNAVAILABLE' })
-      return
-    }
-    const matches = await db.match.findMany({
-      where: { players: { some: { userId: req.params.userId } } },
-      orderBy: { endedAt: 'desc' },
-      take: 20,
-      include: { players: true },
-    })
-    res.json(
-      matches.map((m) => ({
-        id: m.id,
-        endedAt: m.endedAt,
-        winnerId: m.winnerId,
-        players: m.players.map((p) => ({ userId: p.userId, kills: p.kills, deaths: p.deaths, score: p.score })),
-      })),
-    )
+    const names = new Map(users.map((u) => [u.id, u.nickname]))
+    const wins = new Map(wonBy.map((w) => [w.winnerId, w._count._all]))
+    const rows: StatRow[] = grouped.map((g) => ({
+      nickname: names.get(g.userId) ?? '?',
+      kills: g._sum.kills ?? 0,
+      deaths: g._sum.deaths ?? 0,
+      matches: g._count._all,
+      wins: wins.get(g.userId) ?? 0,
+    }))
+    res.json(buildBoard(rows, parseSort(req.query.sort)))
   })
 
   return app

@@ -365,7 +365,7 @@ kbd {
 }
 
 #join-card,
-#auth-card {
+#name-card {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -568,7 +568,8 @@ kbd {
 }
 
 #join-error,
-#auth-error {
+#name-error,
+#rename-error {
   margin: 0;
   min-height: 0;
   font-size: 14px;
@@ -576,31 +577,26 @@ kbd {
   text-align: center;
 }
 #join-error:empty,
-#auth-error:empty,
+#name-error:empty,
+#rename-error:empty,
 .auth-hint:empty {
   display: none;
 }
 #play,
 #reload,
-#auth-submit,
-#auth-reload {
+#name-submit,
+#name-reload {
   width: 100%;
 }
 #join-card[hidden],
-#auth-card[hidden],
+#name-card[hidden],
+#rename-row[hidden],
 #boot[hidden],
 .field[hidden] {
   display: none;
 }
 
 /* Login / Registrierung / Lobby-Kopf */
-.auth-tabs {
-  width: 100%;
-}
-.auth-tabs button {
-  flex: 1;
-  padding: 9px 6px;
-}
 .seg button[aria-selected="true"] {
   color: var(--accent-ink);
   background: var(--accent);
@@ -614,7 +610,8 @@ kbd {
   color: var(--muted);
   text-align: center;
 }
-#auth-card .input {
+#name-card .input,
+.rename-row .input {
   font-size: 18px;
   text-align: left;
 }
@@ -640,20 +637,23 @@ kbd {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.badge {
-  flex: none;
-  padding: 3px 9px;
-  font: 800 11px/1.2 var(--font);
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: var(--accent-ink);
-  background: var(--accent-2);
-  border: 2.5px solid var(--ink);
-  border-radius: 999px;
+
+.rename-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
 }
-.badge.guest {
-  color: var(--text);
-  background: var(--panel-3);
+.rename-row .input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  font-size: 16px;
+}
+.rename-row .btn {
+  flex: none;
+  padding: 8px 12px;
+  font-size: 14px;
 }
 #toplink,
 .toplink {

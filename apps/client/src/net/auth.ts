@@ -1,17 +1,14 @@
 /**
- * Account-API (ADR-005): Registrierung, Login, Gast, Logout, Skin merken.
- * Die Session lebt ausschliesslich im httpOnly-Cookie des Servers (hier nie ein Token/Passwort speichern).
+ * Profil-API (ADR-014): Name pro IP waehlen/aendern, "Nicht du?", Skin merken.
+ * Die Session lebt ausschliesslich im httpOnly-Cookie des Servers (hier nie ein Token speichern).
  */
 export const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:2567'
 
 export interface Identity {
   userId: string
   nickname: string
-  /** true = Gast, false = Konto. */
-  isGuest: boolean
   /** Zuletzt gewaehlter Look (Modell + Farbe). */
   skin: number
-  email?: string
 }
 
 export class AuthError extends Error {
@@ -24,21 +21,18 @@ export class AuthError extends Error {
 }
 
 const MESSAGES: Record<string, string> = {
-  INVALID_EMAIL: 'Bitte eine gültige E-Mail-Adresse eingeben.',
-  INVALID_PASSWORD: 'Das Passwort braucht mindestens 8 Zeichen.',
   INVALID_NICKNAME: 'Spielername: 1–16 Zeichen, nur a-z 0-9 _ -',
-  INVALID_INPUT: 'Bitte alle Felder ausfüllen.',
-  EMAIL_TAKEN: 'Diese E-Mail ist bereits registriert – melde dich an.',
-  INVALID_CREDENTIALS: 'E-Mail oder Passwort stimmt nicht.',
   RATE_LIMITED: 'Zu viele Versuche – bitte kurz warten.',
+  BANNED: 'Du wurdest von diesem Server gesperrt.',
+  NO_SESSION: 'Sitzung abgelaufen – bitte Seite neu laden.',
   SERVER_ERROR: 'Serverfehler – bitte später erneut versuchen.',
 }
 
-async function post(path: string, body: unknown): Promise<Identity> {
+async function send(method: 'POST' | 'PATCH', path: string, body: unknown): Promise<Identity> {
   let res: Response
   try {
     res = await fetch(`${SERVER_URL}${path}`, {
-      method: 'POST',
+      method,
       credentials: 'include',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -48,7 +42,7 @@ async function post(path: string, body: unknown): Promise<Identity> {
   }
   if (!res.ok) {
     const code = ((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'SERVER_ERROR'
-    throw new AuthError(code, MESSAGES[code] ?? 'Anmeldung fehlgeschlagen.')
+    throw new AuthError(code, MESSAGES[code] ?? 'Das hat nicht geklappt.')
   }
   return (await res.json()) as Identity
 }
@@ -56,33 +50,39 @@ async function post(path: string, body: unknown): Promise<Identity> {
 export type MeResult =
   | { state: 'ok'; identity: Identity }
   | { state: 'anon' }
+  | { state: 'banned' }
   | { state: 'offline' }
 
-/** Besteht schon eine Session (Cookie)? Entscheidet zwischen Login-Seite und Lobby. */
-export async function fetchMe(): Promise<MeResult> {
+/**
+ * Welches Profil gehoert zu mir? Cookie zuerst, sonst das Profil dieser IP.
+ * `auto=false` (nach "Nicht du?") ueberspringt die IP-Zuordnung.
+ */
+export async function fetchMe(auto = true): Promise<MeResult> {
   try {
-    const res = await fetch(`${SERVER_URL}/me`, { credentials: 'include' })
+    const res = await fetch(`${SERVER_URL}/me${auto ? '' : '?auto=0'}`, { credentials: 'include' })
     if (res.ok) return { state: 'ok', identity: (await res.json()) as Identity }
-    return res.status === 401 ? { state: 'anon' } : { state: 'offline' }
+    if (res.status === 401) return { state: 'anon' }
+    if (res.status === 403) return { state: 'banned' }
+    return { state: 'offline' }
   } catch {
     return { state: 'offline' }
   }
 }
 
-export const register = (email: string, password: string, nickname: string) =>
-  post('/auth/register', { email, password, nickname })
+/** Erste Namenswahl (legt das Profil dieser IP an). */
+export const createProfile = (nickname: string) => send('POST', '/me', { nickname })
 
-export const login = (email: string, password: string) => post('/auth/login', { email, password })
+/** Anzeigename aendern (gilt ab dem naechsten Beitritt). */
+export const renameProfile = (nickname: string) => send('PATCH', '/me/name', { nickname })
 
-export const guestLogin = (nickname: string) => post('/auth/guest', { nickname })
-
+/** "Nicht du?": Session verwerfen, danach neuen Namen waehlen. */
 export async function logout(): Promise<void> {
   await fetch(`${SERVER_URL}/auth/logout`, { method: 'POST', credentials: 'include' }).catch(
     () => undefined,
   )
 }
 
-/** Lobby-Look am Konto/der Session merken (best effort, Fehler sind egal). */
+/** Lobby-Look am Profil merken (best effort, Fehler sind egal). */
 export async function saveSkin(skin: number): Promise<void> {
   await fetch(`${SERVER_URL}/me/skin`, {
     method: 'PATCH',

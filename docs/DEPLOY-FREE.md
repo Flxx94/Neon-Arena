@@ -107,8 +107,8 @@ git push   # Render + Pages bauen automatisch neu (Blueprint erkennt render.yaml
 `docs/DEPLOY.md` (Docker Compose, LAN-Playtest) bleibt unverändert gültig. Vor `pnpm dev`/Playwright: Prod-Stack stoppen (`docker compose -f infra/docker-compose.prod.yml down`), sonst Port-Kollision 5173/2567.
 
 
-## Konten (Email + Passwort) brauchen eine Datenbank
-Mit `DB_ENABLED=false` (Standard dieser Anleitung) leben Konten nur im Server-Speicher: nach jedem Neustart / Free-Tier-Schlaf von Render sind sie weg,
-und Spieler muessen sich neu registrieren. Fuer dauerhafte Konten: kostenlose Postgres-DB anlegen (z. B. Neon oder Render Postgres), `DB_ENABLED=true` und
-`DATABASE_URL=postgresql://…?sslmode=require` setzen und neu deployen – die Migration (`prisma migrate deploy`) legt die Account-Spalten automatisch an.
-Gaeste funktionieren weiterhin ohne DB.
+## Profile und Bestenliste brauchen eine Datenbank
+Mit `DB_ENABLED=false` leben Profile (Name pro IP) nur im Server-Speicher: nach jedem Neustart / Free-Tier-Schlaf von Render sind sie weg, die Bestenliste ist offline (503),
+und Spieler muessen ihren Namen neu waehlen. Fuer dauerhafte Profile + Bestenliste: kostenlose Postgres-DB anlegen (z. B. Neon), `DB_ENABLED=true` und
+`DATABASE_URL=postgresql://…?sslmode=require` setzen und neu deployen – die Migration (`prisma migrate deploy`) legt die Spalte `User.ip` automatisch an.
+Hinweis: Die IP wird als personenbezogenes Datum in der DB gespeichert (siehe ADR-014); sie wird nie ueber die API ausgeliefert.

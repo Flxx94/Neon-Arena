@@ -5,7 +5,7 @@
 > ## Persistenz (M4)
 > - DB/Redis sind OPTIONAL: `getDb()`/`getRedis()` return null when `NODE_ENV=test`, `DB_ENABLED=false`, or URL missing — server runs degraded (memory sessions/limits). Tests never need Docker.
 > - Prisma 6.19.3 pinned (bare `prisma` resolves 8.0.0-rc!). `apps/server/prisma/` holds schema+migrations; Docker server runs `prisma migrate deploy` on boot; `prisma generate` is part of the Docker build.
-> - Guest flow: `POST /auth/guest` → JWT+cookie+session (+User row if DB); client `ensureGuest()` (`/me` first for reload identity) sends `userId` in join options; room rejects unknown ids (`INVALID_GUEST`). `JWT_SECRET` must exist in local `.env` too (not just `.env.example`) or production boot throws.
+> - Profile flow (ADR-014): `GET /me` (cookie first, else newest profile of the request IP unless `?auto=0`) → `POST /me {nickname}` creates a profile bound to the IP (JWT cookie `na_guest` + session) → `PATCH /me/name` renames, `/auth/logout` = "Nicht du?". Client sends `userId` in join options; room rejects unknown ids (`INVALID_GUEST`). `JWT_SECRET` must exist in local `.env` too (not just `.env.example`) or production boot throws.
 > - Rate limits: `ratelimit/limiter.ts` (memory sliding / redis fixed-window). Input >35/s ignored, >120/s → `leave(4400)`; join 5/min/IP (`RATE_LIMITED`); HTTP guest route 429s.
 > - jose: `setExpirationTime` needs a string like `'24h'` (number = epoch seconds → instantly expired).
 >

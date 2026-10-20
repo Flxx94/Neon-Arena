@@ -2,13 +2,12 @@ import { randomUUID } from 'crypto'
 import { serialize } from 'cookie'
 import { SignJWT, jwtVerify } from 'jose'
 import { nicknameSchema } from '@neon-arena/shared'
-import { getDb } from '../db/prisma.js'
 import { getSessionStore } from './sessions.js'
 
 export const GUEST_COOKIE = 'na_guest'
 const TTL_SECONDS = 24 * 3600
-/** Konten bleiben laenger angemeldet (kein taegliches Neu-Einloggen). */
-export const ACCOUNT_TTL_SECONDS = 7 * 24 * 3600
+/** Profile bleiben lange angemeldet (kein taegliches Neu-Anmelden). */
+export const PROFILE_TTL_SECONDS = 30 * 24 * 3600
 
 let cachedSecret: Uint8Array | null = null
 
@@ -26,12 +25,8 @@ function secret(): Uint8Array {
 export interface GuestIdentity {
   userId: string
   nickname: string
-  /** true = Gast, false = Konto (Email + Passwort). */
-  isGuest: boolean
   /** Zuletzt gewaehlter Look (Lobby). */
   skin: number
-  /** Nur Konten. */
-  email?: string
 }
 
 function cookieAttrs(maxAge: number) {
@@ -47,7 +42,7 @@ function cookieAttrs(maxAge: number) {
   return { httpOnly: true, secure, sameSite, maxAge, path: '/' }
 }
 
-/** Session + JWT-Cookie fuer eine Identitaet ausstellen (Gast oder Konto). */
+/** Session + JWT-Cookie fuer ein Profil ausstellen. */
 export async function issueSession(
   identity: GuestIdentity,
   ttlSeconds: number,
@@ -56,9 +51,7 @@ export async function issueSession(
     userId: identity.userId,
     nickname: identity.nickname,
     createdAt: Date.now(),
-    isGuest: identity.isGuest,
     skin: identity.skin,
-    ...(identity.email ? { email: identity.email } : {}),
     ttlSeconds,
   })
   const token = await new SignJWT({ nickname: identity.nickname })
@@ -75,20 +68,10 @@ export function clearSessionCookie(): string {
   return serialize(GUEST_COOKIE, '', { ...cookieAttrs(0), expires: new Date(0) })
 }
 
-/** Gast-Identitaet ausstellen: JWT + Session + (wenn DB da) User-Zeile. */
+/** Fluechtige Identitaet ohne Profil (Tests/Dev-Helfer; Produktion nutzt Profile pro IP). */
 export async function issueGuest(nickname: string): Promise<{ identity: GuestIdentity; cookie: string }> {
   const nick = nicknameSchema.parse(nickname)
-  const userId = randomUUID()
-
-  const db = getDb()
-  if (db) {
-    await db.user.upsert({
-      where: { id: userId },
-      update: { nickname: nick },
-      create: { id: userId, nickname: nick, isGuest: true },
-    })
-  }
-  return issueSession({ userId, nickname: nick, isGuest: true, skin: 0 }, TTL_SECONDS)
+  return issueSession({ userId: randomUUID(), nickname: nick, skin: 0 }, TTL_SECONDS)
 }
 
 /** Cookie-Token pruefen + Session loesen. Null = abweisen. */
@@ -99,14 +82,7 @@ export async function verifyGuest(token: string): Promise<GuestIdentity | null> 
     if (!userId) return null
     const session = await getSessionStore().get(userId)
     if (!session) return null
-    const identity: GuestIdentity = {
-      userId,
-      nickname: session.nickname,
-      isGuest: session.isGuest ?? true,
-      skin: session.skin ?? 0,
-    }
-    if (session.email) identity.email = session.email
-    return identity
+    return { userId, nickname: session.nickname, skin: session.skin ?? 0 }
   } catch {
     return null
   }

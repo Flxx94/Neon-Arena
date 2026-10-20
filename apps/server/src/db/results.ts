@@ -32,7 +32,7 @@ export interface ResultsDb {
   user: {
     upsert: (args: {
       where: { id: string }
-      update: { nickname: string }
+      update: Record<string, never>
       create: { id: string; nickname: string; isGuest: boolean }
     }) => Promise<unknown>
   }
@@ -40,11 +40,12 @@ export interface ResultsDb {
 
 export async function persistMatch(db: ResultsDb | null, input: PersistInput): Promise<void> {
   if (!db || input.players.length === 0) return
-  // User-Zeilen sicherstellen (Gast wurde ggf. ohne DB ausgestellt).
+  // User-Zeilen sicherstellen (Profil wurde ggf. ohne DB ausgestellt). Name bleibt unberuehrt:
+  // eine Umbenennung waehrend des Matches darf nicht ueberschrieben werden.
   for (const p of input.players) {
     await db.user.upsert({
       where: { id: p.userId },
-      update: { nickname: p.nickname },
+      update: {},
       create: { id: p.userId, nickname: p.nickname, isGuest: true },
     })
   }

@@ -42,7 +42,7 @@
     interpoliert; Reconciliation-Fehler werden weich ausgeblendet (Snap ab 90 px); Frame-Zeit aus `document.timeline.currentTime` (vsync-genau).
 - Messung (Headless, simulierte 30-70 ms Latenz mit Jitter): Eigengeschwindigkeit konstant 165 px/s (stdev ~0 statt ~19 px/s).
 
-## ADR-005: Accounts (Email + Passwort), Login-Seite und Lobby
+## ADR-005: Accounts (Email + Passwort), Login-Seite und Lobby (ersetzt durch ADR-014)
 - Status: akzeptiert (2026-10-15)
 - Entscheidung:
   - Einstieg ist jetzt eine Login-Seite (Tabs Anmelden / Registrieren / Gast). Nach dem Login kommt die **Lobby**: Figur + Farbe per Pfeil-Buttons,
@@ -148,3 +148,18 @@
   - Client-IP: hinter Proxy der LETZTE `X-Forwarded-For`-Eintrag (der erste ist faelschbar), `TRUST_PROXY=false` ignoriert den Header.
   - Grenzen: IP-Banns treffen geteilte Anschluesse (WLAN, Mobilfunk-CGNAT) mit; wer die IP wechselt (VPN/Mobilfunk), umgeht den Bann. IPs sind personenbezogene Daten:
     nur im Admin-Panel sichtbar, nicht im Log; Bann-Eintraege bei Bedarf wieder entfernen.
+
+## ADR-014: Profile pro IP statt Login/Registrierung
+- Status: akzeptiert (2026-10-20); ersetzt ADR-005 (Konten) und den Gast-Flow
+- Entscheidung:
+  - Email/Passwort-Konten, Gast-Login und die Login-Seite sind entfernt (`/auth/register|login|guest`, `accounts.ts`, `password.ts`, `service.ts`).
+    Jede neue IP sieht eine Namenswahl; der Name wird als Profil (`User.nickname`, `User.ip`, `User.skin`) in der DB gespeichert (Migration `20261019120000_ip_profiles`).
+  - `GET /me`: gueltiges Cookie -> Profil; sonst (ohne `?auto=0`) das neueste Profil dieser IP -> Cookie wird neu ausgestellt (30 Tage); sonst 401 -> Namenswahl.
+    Gebannte IPs bekommen 403 `BANNED`. `POST /me {nickname}` legt ein Profil an (5/min/IP), `PATCH /me/name` benennt um (10/min), `/auth/logout` = "Nicht du?".
+  - Umbenennen in der Lobby jederzeit; der neue Name gilt ab dem naechsten Beitritt (laufendes Match behaelt den Namen), die Bestenliste zeigt immer den aktuellen Namen.
+  - Bestenliste: `GET /leaderboard?sort=kills|kd|deaths|matches|wins` (Top 100; K/D = Kills / max(1, Deaths); Siege = Matches mit `winnerId`). Antwort enthaelt nur
+    `rank, nickname, kills, deaths, kd, matches, wins` – weder IDs noch IPs. `/history/:userId` entfaellt (haette IDs preisgegeben).
+- Grenzen: Eine IP ist kein Konto. Geteilte Anschluesse (WLAN, CGNAT) landen automatisch im selben Profil ("Nicht du?" legt ein eigenes an); wer die IP wechselt, startet ohne
+  Cookie ein neues Profil; wer Cookies loescht und die IP behaelt, bekommt das neueste Profil der IP zurueck (Namensimitation moeglich). Namen sind nicht eindeutig.
+- Datenschutz: Die IP ist ein personenbezogenes Datum (DSGVO) und wird dauerhaft gespeichert – Hinweis auf der Namenswahl, nie in API-Antworten oder Logs. Bei Bedarf Datenschutzerklaerung
+  und Loeschweg (Zeile in `User` entfernen) ergaenzen. Alte Spalten `email`/`passwordHash`/`isGuest` bleiben unbenutzt bestehen (nicht-destruktive Migration).
