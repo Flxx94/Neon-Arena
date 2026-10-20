@@ -532,14 +532,14 @@ renameInput.addEventListener('keydown', (e) => {
   }
 })
 
-// "Nicht du?" (geteilte IP, z. B. WLAN): Look sichern, Session verwerfen, neues Profil anlegen.
+// "Nicht du?" (z. B. Geraet geteilt): Look sichern, Profil dieses Browsers verwerfen, neuen Namen waehlen.
 $<HTMLButtonElement>('logout').addEventListener('click', () => {
   window.clearTimeout(skinSaveTimer)
   void saveSkin(currentSkin()).then(() => logout())
   backToName()
 })
 
-// Start: Cookie bzw. Profil dieser IP -> direkt in die Lobby, sonst Namenswahl.
+// Start: Cookie/Token vorhanden -> direkt in die Lobby, sonst Namenswahl.
 showView('boot')
 const slowBoot = window.setTimeout(() => {
   bootEl.textContent = 'Server wacht auf … das kann kurz dauern'
@@ -873,8 +873,15 @@ playBtn.addEventListener('click', () => {
       } else if (msg.includes('BANNED')) {
         joinError.textContent = 'Du wurdest von diesem Server gesperrt.'
       } else if (msg.includes('INVALID_GUEST')) {
-        // Session abgelaufen (z. B. Server-Neustart): zurueck zur Anmeldung.
-        backToName('Deine Sitzung ist abgelaufen – bitte Namen neu wählen.')
+        // Server-Neustart o. Ae.: Profil per Token neu laden statt Namen neu zu waehlen.
+        void fetchMe().then((me) => {
+          if (me.state === 'ok') {
+            enterLobby(me.identity, false)
+            joinError.textContent = 'Verbindung erneuert – bitte noch einmal beitreten.'
+          } else {
+            backToName('Deine Sitzung ist abgelaufen – bitte Namen neu wählen.')
+          }
+        })
       } else {
         joinError.textContent = msg
       }
