@@ -85,6 +85,11 @@ export class NetClient {
   private seq = 0
   /** Ring-Buffer der letzten Snapshots (M3: Interpolation). */
   snapshots: WorldSnapshot[] = []
+  /** Debug: letzte Roundtrip-Zeit (ms) und Abstand zwischen Snapshots (Mittel/Max der letzten ~2 s). */
+  stats = { rtt: -1, snapAvg: 0, snapMax: 0 }
+  private lastSnapAt = 0
+  private snapGaps: number[] = []
+  private pingTimer: number | undefined
 
   get sessionId(): string | null {
     return this.room?.sessionId ?? null
@@ -102,7 +107,20 @@ export class NetClient {
     this.room.onMessage('killfeed', (msg: { by: string; victim: string }) => {
       events.onKill(String(msg.by), String(msg.victim))
     })
+    this.room.onMessage('pong', (t: number) => {
+      this.stats.rtt = Math.round(performance.now() - t)
+    })
+    window.clearInterval(this.pingTimer)
+    this.pingTimer = window.setInterval(() => this.room?.send('ping', performance.now()), 2000)
     this.room.onStateChange((state) => {
+      const nowMs = performance.now()
+      if (this.lastSnapAt) {
+        this.snapGaps.push(nowMs - this.lastSnapAt)
+        if (this.snapGaps.length > 40) this.snapGaps.shift()
+        this.stats.snapAvg = Math.round(this.snapGaps.reduce((a, b) => a + b, 0) / this.snapGaps.length)
+        this.stats.snapMax = Math.round(Math.max(...this.snapGaps))
+      }
+      this.lastSnapAt = nowMs
       const players: ClientPlayer[] = [...state.players.entries()].map(
         ([id, p]: [
           string,
@@ -258,6 +276,10 @@ export class NetClient {
   }
 
   leave(): void {
+    window.clearInterval(this.pingTimer)
+    this.lastSnapAt = 0
+    this.snapGaps = []
+    this.stats.rtt = -1
     void this.room?.leave()
     this.room = null
   }

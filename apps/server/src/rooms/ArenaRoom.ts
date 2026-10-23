@@ -96,6 +96,10 @@ export class ArenaRoom extends Room<ArenaState> {
     this.onMessage('input', (client, raw) => {
       void this.handleInput(client, raw)
     })
+    // Latenzmessung (Debug-Overlay): Zeitstempel unveraendert zurueckspiegeln.
+    this.onMessage('ping', (client, t) => {
+      if (typeof t === 'number') client.send('pong', t)
+    })
     this.onMessage('adminAuth', (client, raw) => {
       void this.handleAdminAuth(client, raw)
     })
