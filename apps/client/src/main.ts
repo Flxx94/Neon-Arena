@@ -1135,7 +1135,7 @@ function frame() {
     frames = 0
     lastFpsAt = now
     if (debug) {
-      debugEl.textContent = `fps ${fps} · spieler ${players.length} · pending ${prediction.pendingCount} · fx ${renderer.fx.count} · ${ARENA_WIDTH}x${ARENA_HEIGHT}`
+      debugEl.textContent = `ping ${net.stats.rtt < 0 ? '–' : net.stats.rtt} ms · snap ${net.stats.snapAvg}/${net.stats.snapMax} ms · fps ${fps} · spieler ${players.length} · pending ${prediction.pendingCount} · fx ${renderer.fx.count} · ${ARENA_WIDTH}x${ARENA_HEIGHT}`
     }
   }
 
